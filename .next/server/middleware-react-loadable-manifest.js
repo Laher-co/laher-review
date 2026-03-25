@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"components/ReviewPage.tsx -> fabric\":{\"id\":\"components/ReviewPage.tsx -> fabric\",\"files\":[\"static/chunks/_app-pages-browser_node_modules_fabric_dist_fabric_js.js\"]}}"

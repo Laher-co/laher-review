@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #FAF9F6;
+}
+
+html,
+body {
+  background-color: var(--background);
+}
+
+/* Fabric.js canvas container */
+.canvas-container {
+  display: block !important;
+  line-height: 0;
+}
+
+/* Cursor overrides per tool */
+.canvas-tool-draw .upper-canvas {
+  cursor: crosshair !important;
+}
+.canvas-tool-rect .upper-canvas,
+.canvas-tool-circle .upper-canvas {
+  cursor: crosshair !important;
+}
+.canvas-tool-text .upper-canvas {
+  cursor: text !important;
+}
+.canvas-tool-select .upper-canvas {
+  cursor: default !important;
+}
