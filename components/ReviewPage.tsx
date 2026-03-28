@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-type Tool = 'select' | 'draw' | 'rect' | 'circle' | 'text'
+type Tool = 'select' | 'draw' | 'text'
 type Decision = 'approved' | 'changes_requested'
 
 const PRESET_COLORS = [
@@ -48,22 +48,6 @@ function PencilIcon() {
   )
 }
 
-function RectIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <rect x="2.5" y="4.5" width="11" height="7" rx="0.5"
-        stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
-function CircleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <ellipse cx="8" cy="8" rx="5.5" ry="4.5" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
-}
 
 function TextIcon() {
   return (
@@ -75,12 +59,11 @@ function TextIcon() {
 }
 
 function UndoIcon() {
+  // Heroicons "arrow-uturn-left" — universally recognised undo symbol
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M5.5 5.5H9.5C11.43 5.5 13 7.07 13 9C13 10.93 11.43 12.5 9.5 12.5H4.5"
-        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M5.5 5.5L3 3M5.5 5.5L3 8"
-        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -185,9 +168,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   const toolRef = useRef<Tool>('select')
   const colorRef = useRef(PRESET_COLORS[0].hex)
   const sizeRef = useRef(3)
-  const drawingRef = useRef(false)
-  const shapeRef = useRef<any>(null)
-  const originRef = useRef({ x: 0, y: 0 })
   const historyRef = useRef<string[]>([])
 
   const [tool, setTool] = useState<Tool>('select')
@@ -269,109 +249,35 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
         { crossOrigin: 'anonymous' }
       )
 
-      // ── Mouse events for shape tools ────────────────────────────────────────
+      // ── Mouse events ─────────────────────────────────────────────────────────
 
       fc.on('mouse:down', (opt: any) => {
-        const t = toolRef.current
-        if (t === 'select' || t === 'draw') return
+        if (toolRef.current !== 'text') return
+        // Only create text on empty-space clicks; let Fabric handle clicks on existing objects
+        if (opt.target) return
 
         const pointer = fc.getPointer(opt.e)
-
-        if (t === 'text') {
-          if (opt.target) return
-          const itext = new fabric.IText('Type here', {
-            left: pointer.x,
-            top: pointer.y,
-            fontSize: 18,
-            fill: colorRef.current,
-            fontFamily: 'Helvetica Neue, Helvetica, Arial, sans-serif',
-            editable: true,
-            padding: 4,
-          })
-          fc.add(itext)
-          fc.setActiveObject(itext)
+        const itext = new fabric.IText('', {
+          left: pointer.x,
+          top: pointer.y,
+          fontSize: 18,
+          fill: colorRef.current,
+          fontFamily: 'Helvetica Neue, Helvetica, Arial, sans-serif',
+          padding: 4,
+        })
+        fc.add(itext)
+        fc.setActiveObject(itext)
+        // Defer enterEditing so Fabric's own mousedown handling finishes first;
+        // without this, Fabric's selection logic races and kills the text cursor.
+        setTimeout(() => {
           itext.enterEditing()
-          itext.selectAll()
           fc.renderAll()
-          return
-        }
-
-        // Deselect any active object so Fabric doesn't try to drag it
-        fc.discardActiveObject()
-
-        drawingRef.current = true
-        originRef.current = { x: pointer.x, y: pointer.y }
-
-        if (t === 'rect') {
-          shapeRef.current = new fabric.Rect({
-            left: pointer.x,
-            top: pointer.y,
-            width: 1,
-            height: 1,
-            fill: 'transparent',
-            stroke: colorRef.current,
-            strokeWidth: sizeRef.current,
-            selectable: false,
-            evented: false,
-          })
-        } else if (t === 'circle') {
-          shapeRef.current = new fabric.Ellipse({
-            left: pointer.x,
-            top: pointer.y,
-            rx: 1,
-            ry: 1,
-            fill: 'transparent',
-            stroke: colorRef.current,
-            strokeWidth: sizeRef.current,
-            selectable: false,
-            evented: false,
-          })
-        }
-
-        if (shapeRef.current) fc.add(shapeRef.current)
-      })
-
-      fc.on('mouse:move', (opt: any) => {
-        if (!drawingRef.current || !shapeRef.current) return
-        const pointer = fc.getPointer(opt.e)
-        const { x: sx, y: sy } = originRef.current
-        const dx = pointer.x - sx
-        const dy = pointer.y - sy
-        const t = toolRef.current
-
-        if (t === 'rect') {
-          shapeRef.current.set({
-            left: dx < 0 ? pointer.x : sx,
-            top: dy < 0 ? pointer.y : sy,
-            width: Math.abs(dx),
-            height: Math.abs(dy),
-          })
-        } else if (t === 'circle') {
-          shapeRef.current.set({
-            left: Math.min(sx, pointer.x),
-            top: Math.min(sy, pointer.y),
-            rx: Math.abs(dx) / 2,
-            ry: Math.abs(dy) / 2,
-          })
-        }
-
-        // setCoords() is required so Fabric recomputes the bounding box before render
-        shapeRef.current.setCoords()
-        fc.renderAll()
-      })
-
-      fc.on('mouse:up', () => {
-        if (!drawingRef.current) return
-        drawingRef.current = false
-        if (shapeRef.current) {
-          shapeRef.current.set({ selectable: true })
-          shapeRef.current = null
-          saveHistory()
-        }
+        }, 0)
       })
 
       fc.on('path:created', saveHistory)
       fc.on('object:modified', saveHistory)
+      fc.on('text:editing:exited', saveHistory)
     })()
 
     return () => {
@@ -394,15 +300,14 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
       fc.freeDrawingBrush.width = size
       fc.selection = false
       fc.skipTargetFind = false
-    } else if (tool === 'rect' || tool === 'circle') {
+    } else if (tool === 'text') {
       fc.isDrawingMode = false
+      // selection = false prevents Fabric starting a rubber-band drag on mousedown,
+      // which would race with enterEditing() and kill the text cursor
       fc.selection = false
-      // skipTargetFind stops Fabric from trying to drag/resize existing objects
-      // when the user clicks to start drawing a new shape
-      fc.skipTargetFind = true
-      fc.discardActiveObject()
-      fc.renderAll()
+      fc.skipTargetFind = false
     } else {
+      // select
       fc.isDrawingMode = false
       fc.selection = true
       fc.skipTargetFind = false
@@ -545,12 +450,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                 <ToolButton active={tool === 'draw'} onClick={() => setTool('draw')} title="Freehand draw">
                   <PencilIcon />
                 </ToolButton>
-                <ToolButton active={tool === 'rect'} onClick={() => setTool('rect')} title="Rectangle">
-                  <RectIcon />
-                </ToolButton>
-                <ToolButton active={tool === 'circle'} onClick={() => setTool('circle')} title="Ellipse">
-                  <CircleIcon />
-                </ToolButton>
                 <ToolButton active={tool === 'text'} onClick={() => setTool('text')} title="Add text">
                   <TextIcon />
                 </ToolButton>
@@ -631,8 +530,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
               className="mt-2 text-xs text-gray-400"
               style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}
             >
-              Draw, add shapes, or annotate text directly on the image. Use the toolbar above to
-              switch tools.
+              Draw or add text annotations directly on the image. Use the toolbar above to switch tools.
             </p>
           </div>
 
