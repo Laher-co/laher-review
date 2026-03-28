@@ -161,7 +161,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const fabricCanvasRef = useRef<any>(null)
-  const fabricModuleRef = useRef<any>(null)
   const bgImageRef = useRef<any>(null)
 
   // Refs for use inside Fabric event handlers (avoid stale closures)
@@ -188,9 +187,12 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   const saveHistory = useCallback(() => {
     const fc = fabricCanvasRef.current
     if (!fc) return
-    // Save objects only — background image is preserved separately via bgImageRef
     const objects = fc.getObjects().map((o: any) => o.toObject())
-    historyRef.current = [...historyRef.current.slice(-29), JSON.stringify(objects)]
+    const state = JSON.stringify(objects)
+    // Deduplicate: don't push if canvas state hasn't changed
+    const h = historyRef.current
+    if (h.length > 0 && h[h.length - 1] === state) return
+    historyRef.current = [...h.slice(-29), state]
   }, [])
 
   // ── Fabric.js initialisation ────────────────────────────────────────────────
@@ -201,8 +203,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     ;(async () => {
       const { fabric } = await import('fabric')
       if (disposed) return
-
-      fabricModuleRef.current = fabric
 
       const container = containerRef.current!
       const containerWidth = container.clientWidth
@@ -253,31 +253,47 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
 
       fc.on('mouse:down', (opt: any) => {
         if (toolRef.current !== 'text') return
-        // Only create text on empty-space clicks; let Fabric handle clicks on existing objects
-        if (opt.target) return
+
+        if (opt.target) {
+          // Clicking an existing IText in text mode → enter its editing mode
+          if (opt.target.type === 'i-text') {
+            fc.setActiveObject(opt.target)
+            opt.target.enterEditing()
+            fc.renderAll()
+          }
+          return
+        }
 
         const pointer = fc.getPointer(opt.e)
         const itext = new fabric.IText('', {
           left: pointer.x,
           top: pointer.y,
-          fontSize: 18,
+          fontSize: 20,
           fill: colorRef.current,
           fontFamily: 'Helvetica Neue, Helvetica, Arial, sans-serif',
           padding: 4,
         })
         fc.add(itext)
         fc.setActiveObject(itext)
-        // Defer enterEditing so Fabric's own mousedown handling finishes first;
-        // without this, Fabric's selection logic races and kills the text cursor.
-        setTimeout(() => {
-          itext.enterEditing()
+        // Call enterEditing synchronously — deferring with setTimeout loses focus
+        // after mouseup fires, which kills keyboard input. fc.selection = false
+        // (set in the sync effect for text mode) prevents Fabric's rubber-band
+        // selection from racing with this.
+        itext.enterEditing()
+        fc.renderAll()
+      })
+
+      fc.on('text:editing:exited', (opt: any) => {
+        // Remove IText if the user clicked away without typing anything
+        if (opt.target && opt.target.text === '') {
+          fc.remove(opt.target)
           fc.renderAll()
-        }, 0)
+        }
+        // object:modified fires after this and calls saveHistory for non-empty text
       })
 
       fc.on('path:created', saveHistory)
       fc.on('object:modified', saveHistory)
-      fc.on('text:editing:exited', saveHistory)
     })()
 
     return () => {
@@ -318,8 +334,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
 
   const handleUndo = () => {
     const fc = fabricCanvasRef.current
-    const fabric = fabricModuleRef.current
-    if (!fc || !fabric) return
+    if (!fc) return
 
     const history = historyRef.current
     if (history.length === 0) return
@@ -327,33 +342,30 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     const newHistory = history.slice(0, -1)
     historyRef.current = newHistory
 
-    // Remove all current objects without mutating the live array
-    fc.getObjects().slice().forEach((o: any) => fc.remove(o))
+    const prevObjects = newHistory.length > 0
+      ? JSON.parse(newHistory[newHistory.length - 1])
+      : []
 
-    const prev = newHistory[newHistory.length - 1]
-    if (prev) {
-      const objects = JSON.parse(prev)
-      // enlivenObjects restores typed Fabric objects (Path, Rect, Ellipse, IText, etc.)
-      // Background image is untouched since we saved objects-only in saveHistory
-      fabric.util.enlivenObjects(
-        objects,
-        (enlivened: any[]) => {
-          enlivened.forEach((o: any) => fc.add(o))
-          fc.renderAll()
-        },
-        'fabric',
-      )
-    } else {
-      fc.renderAll()
-    }
+    // Use loadFromJSON — it's Fabric's canonical restore path and handles all
+    // object types (Path, IText, etc.) correctly. We embed the background image
+    // object directly in the JSON so it's preserved without an extra network
+    // fetch (browser serves it from cache since the proxy URL is unchanged).
+    const bg = bgImageRef.current
+    const loadJson: any = { version: '5.3.0', objects: prevObjects }
+    if (bg) loadJson.backgroundImage = bg.toObject()
+
+    fc.loadFromJSON(loadJson, fc.renderAll.bind(fc))
   }
 
-  const handleClear = () => {
+  const handleDeleteSelected = () => {
     const fc = fabricCanvasRef.current
     if (!fc) return
-    fc.getObjects().slice().forEach((o: any) => fc.remove(o))
+    const active = fc.getActiveObjects()
+    if (active.length === 0) return
+    active.forEach((o: any) => fc.remove(o))
+    fc.discardActiveObject()
     fc.renderAll()
-    historyRef.current = []
+    saveHistory()
   }
 
   const handleSubmit = async (d: Decision) => {
@@ -499,8 +511,8 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                   <UndoIcon />
                 </button>
                 <button
-                  onClick={handleClear}
-                  title="Clear all annotations"
+                  onClick={handleDeleteSelected}
+                  title="Delete selected annotation"
                   className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors shadow-sm"
                 >
                   <TrashIcon />
