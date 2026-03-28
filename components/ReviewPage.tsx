@@ -208,8 +208,9 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   const saveHistory = useCallback(() => {
     const fc = fabricCanvasRef.current
     if (!fc) return
-    const state = JSON.stringify(fc.toJSON())
-    historyRef.current = [...historyRef.current.slice(-29), state]
+    // Save objects only — background image is preserved separately via bgImageRef
+    const objects = fc.getObjects().map((o: any) => o.toObject())
+    historyRef.current = [...historyRef.current.slice(-29), JSON.stringify(objects)]
   }, [])
 
   // ── Fabric.js initialisation ────────────────────────────────────────────────
@@ -295,6 +296,9 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
           return
         }
 
+        // Deselect any active object so Fabric doesn't try to drag it
+        fc.discardActiveObject()
+
         drawingRef.current = true
         originRef.current = { x: pointer.x, y: pointer.y }
 
@@ -308,6 +312,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
             stroke: colorRef.current,
             strokeWidth: sizeRef.current,
             selectable: false,
+            evented: false,
           })
         } else if (t === 'circle') {
           shapeRef.current = new fabric.Ellipse({
@@ -319,6 +324,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
             stroke: colorRef.current,
             strokeWidth: sizeRef.current,
             selectable: false,
+            evented: false,
           })
         }
 
@@ -349,6 +355,8 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
           })
         }
 
+        // setCoords() is required so Fabric recomputes the bounding box before render
+        shapeRef.current.setCoords()
         fc.renderAll()
       })
 
@@ -385,9 +393,19 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
       fc.freeDrawingBrush.color = color
       fc.freeDrawingBrush.width = size
       fc.selection = false
+      fc.skipTargetFind = false
+    } else if (tool === 'rect' || tool === 'circle') {
+      fc.isDrawingMode = false
+      fc.selection = false
+      // skipTargetFind stops Fabric from trying to drag/resize existing objects
+      // when the user clicks to start drawing a new shape
+      fc.skipTargetFind = true
+      fc.discardActiveObject()
+      fc.renderAll()
     } else {
       fc.isDrawingMode = false
-      fc.selection = tool === 'select' || tool === 'text'
+      fc.selection = true
+      fc.skipTargetFind = false
     }
   }, [tool, color, size])
 
@@ -395,38 +413,40 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
 
   const handleUndo = () => {
     const fc = fabricCanvasRef.current
-    if (!fc) return
-    const history = historyRef.current
+    const fabric = fabricModuleRef.current
+    if (!fc || !fabric) return
 
-    if (history.length === 0) {
-      fc.getObjects().forEach((o: any) => fc.remove(o))
-      fc.renderAll()
-      return
-    }
+    const history = historyRef.current
+    if (history.length === 0) return
 
     const newHistory = history.slice(0, -1)
     historyRef.current = newHistory
-    const prev = newHistory[newHistory.length - 1]
 
-    if (!prev) {
-      fc.getObjects().forEach((o: any) => fc.remove(o))
-      fc.renderAll()
-    } else {
-      fc.loadFromJSON(prev, () => {
-        // Re-apply background image after loadFromJSON
-        if (bgImageRef.current) {
-          fc.setBackgroundImage(bgImageRef.current, fc.renderAll.bind(fc))
-        } else {
+    // Remove all current objects without mutating the live array
+    fc.getObjects().slice().forEach((o: any) => fc.remove(o))
+
+    const prev = newHistory[newHistory.length - 1]
+    if (prev) {
+      const objects = JSON.parse(prev)
+      // enlivenObjects restores typed Fabric objects (Path, Rect, Ellipse, IText, etc.)
+      // Background image is untouched since we saved objects-only in saveHistory
+      fabric.util.enlivenObjects(
+        objects,
+        (enlivened: any[]) => {
+          enlivened.forEach((o: any) => fc.add(o))
           fc.renderAll()
-        }
-      })
+        },
+        'fabric',
+      )
+    } else {
+      fc.renderAll()
     }
   }
 
   const handleClear = () => {
     const fc = fabricCanvasRef.current
     if (!fc) return
-    fc.getObjects().forEach((o: any) => fc.remove(o))
+    fc.getObjects().slice().forEach((o: any) => fc.remove(o))
     fc.renderAll()
     historyRef.current = []
   }
