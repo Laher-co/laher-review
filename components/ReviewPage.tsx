@@ -347,9 +347,9 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   // ── Canvas initialisation ─────────────────────────────────────────────────
 
   useEffect(() => {
-    const canvas    = canvasRef.current
+    const canvas    = canvasRef.current as HTMLCanvasElement
     const container = containerRef.current
-    if (!canvas || !container) return
+    if (!canvasRef.current || !container) return
 
     let disposed = false
 
