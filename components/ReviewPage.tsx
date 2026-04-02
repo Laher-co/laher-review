@@ -201,28 +201,32 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     canvas.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
 
-    // Load background image
+    // Load background image — size the pixel buffer to the image's natural
+    // dimensions (capped at 1600px wide). CSS w-full stretches the canvas to
+    // fill the container; toCanvas() accounts for the CSS/pixel scale factor.
+    let cancelled = false
     const img = new Image()
     img.onload = () => {
+      if (cancelled) return
       bgRef.current = img
-      const aspect = img.naturalWidth / img.naturalHeight
-      const maxW   = container.clientWidth
-      const maxH   = Math.floor(window.innerHeight * 0.68)
-      let w = maxW, h = w / aspect
-      if (h > maxH) { h = maxH; w = h * aspect }
-      canvas.width  = Math.floor(w)
-      canvas.height = Math.floor(h)
+      // Cap at 1600×1200 px while maintaining aspect ratio
+      const scale = Math.min(1, 1600 / img.naturalWidth, 1200 / img.naturalHeight)
+      canvas.width  = Math.round(img.naturalWidth  * scale)
+      canvas.height = Math.round(img.naturalHeight * scale)
       redraw()
       setReady(true)
     }
     img.onerror = () => {
-      canvas.width  = container.clientWidth
-      canvas.height = 480
+      if (cancelled) return
+      canvas.width  = 800
+      canvas.height = 600
       setReady(true)
     }
     img.src = `/api/proxy?url=${encodeURIComponent(imageUrl)}`
 
     return () => {
+      cancelled = true
+      img.src   = ''
       canvas.removeEventListener('mousedown', onDown)
       canvas.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
@@ -299,7 +303,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
         <div className="flex flex-col lg:flex-row gap-6 items-start">
 
           {/* Canvas column */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
 
             {/* Toolbar */}
             <div className="mb-3 flex flex-wrap items-center gap-2.5">
@@ -345,7 +349,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                     style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>Loading design…</span>
                 </div>
               )}
-              <canvas ref={canvasRef} className="block cursor-crosshair" />
+              <canvas ref={canvasRef} className="block w-full cursor-crosshair" />
             </div>
 
             <p className="mt-2 text-xs text-gray-400" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
