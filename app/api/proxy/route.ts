@@ -23,9 +23,13 @@ export async function GET(request: NextRequest) {
   if (useToken) {
     const apiKey = process.env.TRELLO_API_KEY
     const token  = process.env.TRELLO_TOKEN
+    console.log('[proxy] Trello auth requested — key present:', !!apiKey, '| token present:', !!token)
     if (apiKey) parsed.searchParams.set('key',   apiKey)
     if (token)  parsed.searchParams.set('token', token)
   }
+
+  // Log the full URL being fetched (credentials visible in Vercel function logs for debugging)
+  console.log('[proxy] fetching:', parsed.href)
 
   try {
     const response = await fetch(parsed.href, {
@@ -33,8 +37,10 @@ export async function GET(request: NextRequest) {
       cache: 'no-store',
     })
 
+    console.log('[proxy] upstream status:', response.status, response.statusText)
+
     if (!response.ok) {
-      return NextResponse.json({ error: 'Failed to fetch image' }, { status: response.status })
+      return NextResponse.json({ error: 'Failed to fetch image', upstreamStatus: response.status }, { status: response.status })
     }
 
     const contentType = response.headers.get('content-type') ?? 'image/jpeg'
@@ -50,6 +56,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to proxy image'
+    console.log('[proxy] fetch error:', message)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
