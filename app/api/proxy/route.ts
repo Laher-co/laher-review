@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
-  const raw = request.nextUrl.searchParams.get('url')
+  const raw      = request.nextUrl.searchParams.get('url')
+  const useToken = request.nextUrl.searchParams.has('token')
 
   if (!raw) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
@@ -16,6 +17,14 @@ export async function GET(request: NextRequest) {
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return NextResponse.json({ error: 'Only http/https URLs are allowed' }, { status: 400 })
+  }
+
+  // If the caller requests Trello auth, append credentials from env vars
+  if (useToken) {
+    const apiKey = process.env.TRELLO_API_KEY
+    const token  = process.env.TRELLO_TOKEN
+    if (apiKey) parsed.searchParams.set('key',   apiKey)
+    if (token)  parsed.searchParams.set('token', token)
   }
 
   try {

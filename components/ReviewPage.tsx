@@ -222,7 +222,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
       canvas.height = 600
       setReady(true)
     }
-    img.src = `/api/proxy?url=${encodeURIComponent(imageUrl)}`
+    img.src = `/api/proxy?url=${encodeURIComponent(imageUrl)}&token=1`
 
     return () => {
       cancelled = true
