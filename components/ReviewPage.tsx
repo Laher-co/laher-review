@@ -133,7 +133,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     const container = containerRef.current
     if (!canvas || !container) return
 
-    canvas.style.cursor = 'crosshair'
 
     // Paint all committed strokes + the active in-progress one
     function redraw() {
@@ -346,7 +345,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                     style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>Loading design…</span>
                 </div>
               )}
-              <canvas ref={canvasRef} style={{ display: 'block' }} />
+              <canvas ref={canvasRef} className="block cursor-crosshair" />
             </div>
 
             <p className="mt-2 text-xs text-gray-400" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
