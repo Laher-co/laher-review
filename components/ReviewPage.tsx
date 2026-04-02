@@ -1,37 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type Decision = 'approved' | 'changes_requested'
 
-interface PathAnn {
-  id: string
-  type: 'path'
+interface Stroke {
   points: { x: number; y: number }[]
   color: string
-  lineWidth: number
+  width: number
 }
-
-type Ann = PathAnn
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const PRESET_COLORS = [
-  { hex: '#EF4444', label: 'Red' },
-  { hex: '#3B82F6', label: 'Blue' },
-  { hex: '#22C55E', label: 'Green' },
-  { hex: '#F59E0B', label: 'Amber' },
-  { hex: '#A855F7', label: 'Purple' },
-  { hex: '#111111', label: 'Black' },
-]
-
-const BRUSH_SIZES = [
-  { label: 'S', value: 2 },
-  { label: 'M', value: 4 },
-  { label: 'L', value: 8 },
-]
 
 interface Props {
   customerEmail: string
@@ -40,26 +19,23 @@ interface Props {
   cardId: string
 }
 
-// ── Utility ───────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-let _id = 0
-const uid = () => `a${++_id}`
+const COLORS = [
+  { hex: '#EF4444', label: 'Red' },
+  { hex: '#3B82F6', label: 'Blue' },
+  { hex: '#22C55E', label: 'Green' },
+  { hex: '#F59E0B', label: 'Amber' },
+  { hex: '#111111', label: 'Black' },
+]
 
-function cloneAnn(a: Ann): Ann {
-  return { ...a, points: a.points.map(p => ({ ...p })) }
-}
+const SIZES = [
+  { label: 'S', value: 2 },
+  { label: 'M', value: 5 },
+  { label: 'L', value: 10 },
+]
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
-
-function PencilIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M10.5 2.5L13.5 5.5L5.5 13.5H2.5V10.5L10.5 2.5Z"
-        stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-      <path d="M8.5 4.5L11.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
 
 function UndoIcon() {
   return (
@@ -121,187 +97,151 @@ function SuccessView({ decision, designerName }: { decision: Decision; designerN
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ReviewPage({ customerEmail, designerName, imageUrl, cardId }: Props) {
-
-  // ── Refs ───────────────────────────────────────────────────────────────────
   const canvasRef    = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const bgImageRef   = useRef<HTMLImageElement | null>(null)
 
-  // Annotation data — never stored in React state to avoid re-render overhead
-  const annotationsRef = useRef<Ann[]>([])
-  const historyRef     = useRef<Ann[][]>([])
+  // All strokes — mutated directly, never stored in React state
+  const strokesRef   = useRef<Stroke[]>([])
+  const bgRef        = useRef<HTMLImageElement | null>(null)
 
-  // Drawing state
-  const isDrawingRef    = useRef(false)
-  const currentPathRef  = useRef<PathAnn | null>(null)
+  // Current in-progress stroke
+  const activeRef    = useRef<Stroke | null>(null)
+  const drawingRef   = useRef(false)
 
-  // Mirror refs for color/size — read inside event handlers without stale closures
-  const colorRef = useRef(PRESET_COLORS[0].hex)
-  const sizeRef  = useRef(3)
+  // Mirrors for color/size so event handlers always see the latest value
+  const colorRef     = useRef(COLORS[0].hex)
+  const widthRef     = useRef(SIZES[1].value) // default M
 
-  // ── React state (UI only) ─────────────────────────────────────────────────
-  const [color,       setColor]       = useState(PRESET_COLORS[0].hex)
-  const [size,        setSize]        = useState(3)
-  const [canvasReady, setCanvasReady] = useState(false)
+  // UI state
+  const [color,       setColor]       = useState(COLORS[0].hex)
+  const [width,       setWidth]       = useState(SIZES[1].value) // default M
+  const [ready,       setReady]       = useState(false)
   const [feedback,    setFeedback]    = useState('')
   const [submitting,  setSubmitting]  = useState(false)
   const [submitted,   setSubmitted]   = useState(false)
   const [decision,    setDecision]    = useState<Decision | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // Keep refs in sync with state
+  // Keep mirrors in sync
   useEffect(() => { colorRef.current = color }, [color])
-  useEffect(() => { sizeRef.current  = size  }, [size])
+  useEffect(() => { widthRef.current = width }, [width])
 
-  // ── Canvas drawing ────────────────────────────────────────────────────────
-
-  const redraw = useCallback(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    if (bgImageRef.current) ctx.drawImage(bgImageRef.current, 0, 0, canvas.width, canvas.height)
-
-    for (const ann of annotationsRef.current) {
-      paintPath(ctx, ann)
-    }
-  }, [])
-
-  function paintPath(ctx: CanvasRenderingContext2D, ann: PathAnn) {
-    if (ann.points.length === 0) return
-    ctx.save()
-    ctx.strokeStyle = ann.color
-    ctx.lineWidth   = ann.lineWidth
-    ctx.lineCap     = 'round'
-    ctx.lineJoin    = 'round'
-    ctx.beginPath()
-    ctx.moveTo(ann.points[0].x, ann.points[0].y)
-    for (let i = 1; i < ann.points.length; i++) ctx.lineTo(ann.points[i].x, ann.points[i].y)
-    ctx.stroke()
-    // dot for single-click
-    if (ann.points.length === 1) {
-      ctx.fillStyle = ann.color
-      ctx.beginPath()
-      ctx.arc(ann.points[0].x, ann.points[0].y, ann.lineWidth / 2, 0, Math.PI * 2)
-      ctx.fill()
-    }
-    ctx.restore()
-  }
-
-  // ── History ───────────────────────────────────────────────────────────────
-
-  const saveHistory = useCallback(() => {
-    const snapshot = annotationsRef.current.map(cloneAnn)
-    historyRef.current = [...historyRef.current.slice(-29), snapshot]
-  }, [])
-
-  // ── Canvas initialisation ─────────────────────────────────────────────────
+  // ── Canvas setup & drawing ─────────────────────────────────────────────────
 
   useEffect(() => {
-    const canvas    = canvasRef.current as HTMLCanvasElement
+    const canvas    = canvasRef.current
     const container = containerRef.current
-    if (!canvasRef.current || !container) return
+    if (!canvas || !container) return
 
-    let disposed = false
-
-    // Set draw cursor
     canvas.style.cursor = 'crosshair'
 
-    // ── Load background image ──────────────────────────────────────────────
-    const img   = new Image()
-    img.onload = () => {
-      if (disposed) return
-      bgImageRef.current = img
+    // Paint all committed strokes + the active in-progress one
+    function redraw() {
+      const ctx = canvas!.getContext('2d')
+      if (!ctx) return
+      ctx.clearRect(0, 0, canvas!.width, canvas!.height)
+      if (bgRef.current) ctx.drawImage(bgRef.current, 0, 0, canvas!.width, canvas!.height)
+      const all = activeRef.current
+        ? [...strokesRef.current, activeRef.current]
+        : strokesRef.current
+      for (const s of all) paintStroke(ctx, s)
+    }
 
-      const nw     = img.naturalWidth  || 800
-      const nh     = img.naturalHeight || 600
-      const aspect = nw / nh
+    function paintStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
+      if (s.points.length === 0) return
+      ctx.save()
+      ctx.strokeStyle = s.color
+      ctx.lineWidth   = s.width
+      ctx.lineCap     = 'round'
+      ctx.lineJoin    = 'round'
+      ctx.beginPath()
+      ctx.moveTo(s.points[0].x, s.points[0].y)
+      for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y)
+      ctx.stroke()
+      if (s.points.length === 1) {
+        ctx.fillStyle = s.color
+        ctx.beginPath()
+        ctx.arc(s.points[0].x, s.points[0].y, s.width / 2, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      ctx.restore()
+    }
+
+    function toCanvas(e: MouseEvent) {
+      const r  = canvas!.getBoundingClientRect()
+      return {
+        x: (e.clientX - r.left) * (canvas!.width  / r.width),
+        y: (e.clientY - r.top)  * (canvas!.height / r.height),
+      }
+    }
+
+    function onDown(e: MouseEvent) {
+      drawingRef.current = true
+      activeRef.current  = { points: [toCanvas(e)], color: colorRef.current, width: widthRef.current }
+      redraw()
+    }
+
+    function onMove(e: MouseEvent) {
+      if (!drawingRef.current || !activeRef.current) return
+      activeRef.current.points.push(toCanvas(e))
+      redraw()
+    }
+
+    function onUp() {
+      if (!drawingRef.current || !activeRef.current) return
+      strokesRef.current = [...strokesRef.current, activeRef.current]
+      activeRef.current  = null
+      drawingRef.current = false
+      redraw()
+    }
+
+    // Expose redraw so the undo button can call it
+    ;(canvas as unknown as { _redraw: () => void })._redraw = redraw
+
+    canvas.addEventListener('mousedown', onDown)
+    canvas.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+
+    // Load background image
+    const img = new Image()
+    img.onload = () => {
+      bgRef.current = img
+      const aspect = img.naturalWidth / img.naturalHeight
       const maxW   = container.clientWidth
       const maxH   = Math.floor(window.innerHeight * 0.68)
-
       let w = maxW, h = w / aspect
       if (h > maxH) { h = maxH; w = h * aspect }
       canvas.width  = Math.floor(w)
       canvas.height = Math.floor(h)
-
       redraw()
-      setCanvasReady(true)
+      setReady(true)
     }
     img.onerror = () => {
-      if (disposed) return
       canvas.width  = container.clientWidth
       canvas.height = 480
-      setCanvasReady(true)
+      setReady(true)
     }
     img.src = `/api/proxy?url=${encodeURIComponent(imageUrl)}`
 
-    // ── Mouse helpers ──────────────────────────────────────────────────────
-    function getPoint(e: MouseEvent) {
-      const r  = canvas.getBoundingClientRect()
-      const sx = canvas.width  / r.width
-      const sy = canvas.height / r.height
-      return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy }
-    }
-
-    // ── Mouse event handlers ───────────────────────────────────────────────
-    function onMouseDown(e: MouseEvent) {
-      const { x, y } = getPoint(e)
-      const path: PathAnn = {
-        id: uid(), type: 'path',
-        points: [{ x, y }],
-        color: colorRef.current,
-        lineWidth: sizeRef.current,
-      }
-      isDrawingRef.current   = true
-      currentPathRef.current = path
-      annotationsRef.current = [...annotationsRef.current, path]
-      redraw()
-    }
-
-    function onMouseMove(e: MouseEvent) {
-      if (!isDrawingRef.current || !currentPathRef.current) return
-      const { x, y } = getPoint(e)
-      currentPathRef.current.points.push({ x, y })
-      redraw()
-    }
-
-    function onMouseUp() {
-      if (!isDrawingRef.current || !currentPathRef.current) return
-      isDrawingRef.current   = false
-      currentPathRef.current = null
-      saveHistory()
-    }
-
-    canvas.addEventListener('mousedown', onMouseDown)
-    canvas.addEventListener('mousemove', onMouseMove)
-    // Listen on window so mouseup outside canvas still ends the stroke
-    window.addEventListener('mouseup', onMouseUp)
-
     return () => {
-      disposed = true
-      canvas.removeEventListener('mousedown', onMouseDown)
-      canvas.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
+      canvas.removeEventListener('mousedown', onDown)
+      canvas.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
     }
-  }, [imageUrl, redraw, saveHistory])
+  }, [imageUrl])
 
-  // ── Actions ───────────────────────────────────────────────────────────────
+  // ── Undo ──────────────────────────────────────────────────────────────────
 
-  const handleUndo = useCallback(() => {
-    if (historyRef.current.length === 0) return
-    const newHistory           = historyRef.current.slice(0, -1)
-    historyRef.current         = newHistory
-    annotationsRef.current     = newHistory.length > 0
-      ? newHistory[newHistory.length - 1].map(cloneAnn)
-      : []
-    redraw()
-  }, [redraw])
+  function handleUndo() {
+    if (strokesRef.current.length === 0) return
+    strokesRef.current = strokesRef.current.slice(0, -1)
+    const canvas = canvasRef.current as unknown as { _redraw: () => void }
+    canvas._redraw()
+  }
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  const handleSubmit = async (d: Decision) => {
+  async function handleSubmit(d: Decision) {
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -309,33 +249,30 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
       const webhookUrl     = process.env.NEXT_PUBLIC_WEBHOOK_URL
       if (!webhookUrl) throw new Error('Webhook URL is not configured.')
       const res = await fetch(webhookUrl, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cardId, customerEmail, designerName, decision: d, feedback, annotatedImage, submittedAt: new Date().toISOString() }),
       })
       if (!res.ok) throw new Error(`Server responded with ${res.status}.`)
       setDecision(d)
       setSubmitted(true)
-    } catch (err: any) {
-      setSubmitError(err?.message ?? 'Something went wrong. Please try again.')
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  // ── Derived display name ──────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   const displayName = customerEmail.split('@')[0].replace(/[._-]/g, ' ')
     .split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 
   if (submitted && decision) return <SuccessView decision={decision} designerName={designerName} />
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <div className="min-h-screen bg-[#FAF9F6]">
 
-      {/* Header */}
       <header className="bg-black px-8 py-5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <h1 className="font-inter text-white text-xl font-semibold tracking-[0.3em] uppercase select-none">
@@ -348,7 +285,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
         </div>
       </header>
 
-      {/* Intro */}
       <div className="max-w-7xl mx-auto px-6 pt-8 pb-5">
         <h2 className="font-inter text-[1.6rem] font-light text-gray-900 leading-tight">
           Hello, {displayName}
@@ -360,7 +296,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
         </p>
       </div>
 
-      {/* Main layout */}
       <div className="max-w-7xl mx-auto px-6 pb-16">
         <div className="flex flex-col lg:flex-row gap-6 items-start">
 
@@ -370,16 +305,9 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
             {/* Toolbar */}
             <div className="mb-3 flex flex-wrap items-center gap-2.5">
 
-              {/* Draw tool indicator */}
-              <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
-                <div className="p-2 rounded-md bg-gray-900 text-white">
-                  <PencilIcon />
-                </div>
-              </div>
-
-              {/* Colours */}
+              {/* Colour picker */}
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 shadow-sm">
-                {PRESET_COLORS.map(c => (
+                {COLORS.map(c => (
                   <button key={c.hex} onClick={() => setColor(c.hex)} title={c.label}
                     className={`w-5 h-5 rounded-full transition-all ${
                       color === c.hex ? 'ring-2 ring-offset-1 ring-gray-500 scale-110' : 'hover:scale-110'
@@ -388,31 +316,31 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                 ))}
               </div>
 
-              {/* Stroke size */}
+              {/* Size selector */}
               <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
-                {BRUSH_SIZES.map(bs => (
-                  <button key={bs.value} onClick={() => setSize(bs.value)}
+                {SIZES.map(s => (
+                  <button key={s.value} onClick={() => setWidth(s.value)}
                     className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                      size === bs.value ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                      width === s.value
+                        ? 'bg-gray-900 text-white'
+                        : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
                     }`}>
-                    {bs.label}
+                    {s.label}
                   </button>
                 ))}
               </div>
 
               {/* Undo */}
-              <div className="flex items-center ml-auto">
-                <button onClick={handleUndo} title="Undo last action"
-                  className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors shadow-sm">
-                  <UndoIcon />
-                </button>
-              </div>
+              <button onClick={handleUndo} title="Undo last stroke"
+                className="ml-auto p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors shadow-sm">
+                <UndoIcon />
+              </button>
             </div>
 
-            {/* Canvas wrapper */}
+            {/* Canvas */}
             <div ref={containerRef}
-              className="w-full relative overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-gray-100">
-              {!canvasReady && (
+              className="w-full overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-gray-100">
+              {!ready && (
                 <div className="flex items-center justify-center h-96">
                   <span className="text-gray-400 text-sm tracking-wide"
                     style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>Loading design…</span>
@@ -422,7 +350,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
             </div>
 
             <p className="mt-2 text-xs text-gray-400" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
-              Draw directly on the image to annotate. Use the toolbar above to change colour or size.
+              Draw directly on the image. Use the toolbar to change colour or brush size.
             </p>
           </div>
 
@@ -456,11 +384,11 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                 </p>
               )}
 
-              <button onClick={() => handleSubmit('approved')} disabled={submitting || !canvasReady}
+              <button onClick={() => handleSubmit('approved')} disabled={submitting || !ready}
                 className="w-full py-3.5 bg-gray-900 text-white rounded-lg font-inter text-sm font-medium tracking-wide hover:bg-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed mb-3">
                 {submitting ? 'Submitting…' : 'Approve Design'}
               </button>
-              <button onClick={() => handleSubmit('changes_requested')} disabled={submitting || !canvasReady}
+              <button onClick={() => handleSubmit('changes_requested')} disabled={submitting || !ready}
                 className="w-full py-3.5 border border-gray-300 text-gray-800 rounded-lg font-inter text-sm font-medium tracking-wide hover:border-gray-900 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 Request Changes
               </button>
