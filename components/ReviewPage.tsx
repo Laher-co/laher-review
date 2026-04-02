@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type Tool = 'select' | 'draw' | 'text'
 type Decision = 'approved' | 'changes_requested'
 
 interface PathAnn {
@@ -15,26 +14,7 @@ interface PathAnn {
   lineWidth: number
 }
 
-interface TextAnn {
-  id: string
-  type: 'text'
-  x: number   // left edge of text
-  y: number   // top edge of text (NOT the canvas baseline)
-  text: string
-  color: string
-  fontSize: number
-}
-
-type Ann = PathAnn | TextAnn
-
-interface EditingText {
-  id: string
-  x: number
-  y: number
-  text: string
-  color: string
-  fontSize: number
-}
+type Ann = PathAnn
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -53,10 +33,6 @@ const BRUSH_SIZES = [
   { label: 'L', value: 8 },
 ]
 
-const FONT_SIZE = 20
-const HIT_RADIUS = 8   // px tolerance for path click detection
-const SEL_PAD = 6      // px padding around selection box
-
 interface Props {
   customerEmail: string
   designerName: string
@@ -69,49 +45,11 @@ interface Props {
 let _id = 0
 const uid = () => `a${++_id}`
 
-// Hit-test a click (px,py) against a path annotation
-function hitPath(ann: PathAnn, px: number, py: number): boolean {
-  const threshold = Math.max(ann.lineWidth / 2 + 4, HIT_RADIUS)
-  const pts = ann.points
-  for (let i = 0; i < pts.length; i++) {
-    if (Math.hypot(pts[i].x - px, pts[i].y - py) <= threshold) return true
-    if (i < pts.length - 1) {
-      const ax = pts[i].x, ay = pts[i].y, bx = pts[i + 1].x, by = pts[i + 1].y
-      const dx = bx - ax, dy = by - ay
-      const len2 = dx * dx + dy * dy
-      if (len2 > 0) {
-        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2))
-        if (Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) <= threshold) return true
-      }
-    }
-  }
-  return false
-}
-
-// Hit-test a click against a text annotation (needs ctx for text measurement)
-function hitText(ctx: CanvasRenderingContext2D, ann: TextAnn, px: number, py: number): boolean {
-  ctx.font = `${ann.fontSize}px Helvetica, Arial, sans-serif`
-  const w = ctx.measureText(ann.text || 'W').width
-  return px >= ann.x - 4 && px <= ann.x + w + 4
-      && py >= ann.y - 4 && py <= ann.y + ann.fontSize + 4
-}
-
-// Deep-clone an annotation snapshot for history
 function cloneAnn(a: Ann): Ann {
-  if (a.type === 'path') return { ...a, points: a.points.map(p => ({ ...p })) }
-  return { ...a }
+  return { ...a, points: a.points.map(p => ({ ...p })) }
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
-
-function SelectIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M3.5 1.5L12.5 7.5L8.5 9L6.5 14.5L3.5 1.5Z"
-        stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  )
-}
 
 function PencilIcon() {
   return (
@@ -123,29 +61,11 @@ function PencilIcon() {
   )
 }
 
-function TextIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M3 4.5H13M8 4.5V12.5M5.5 12.5H10.5"
-        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 function UndoIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function TrashIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M2.5 4.5H13.5M6 4.5V3H10V4.5M5.5 4.5L6 13H10L10.5 4.5"
-        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -165,21 +85,6 @@ function ClockIcon() {
       <circle cx="24" cy="24" r="20" stroke="#111" strokeWidth="2" />
       <path d="M24 14V24L30 30" stroke="#111" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
-  )
-}
-
-// ── ToolButton ────────────────────────────────────────────────────────────────
-
-function ToolButton({ active, onClick, title, children }: {
-  active: boolean; onClick: () => void; title: string; children: React.ReactNode
-}) {
-  return (
-    <button onClick={onClick} title={title}
-      className={`p-2 rounded-md transition-colors ${
-        active ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-      }`}>
-      {children}
-    </button>
   )
 }
 
@@ -224,28 +129,20 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
 
   // Annotation data — never stored in React state to avoid re-render overhead
   const annotationsRef = useRef<Ann[]>([])
-  const selectedIdRef  = useRef<string | null>(null)
-  // History: each entry is a full snapshot of annotationsRef at a point in time
   const historyRef     = useRef<Ann[][]>([])
 
   // Drawing state
   const isDrawingRef    = useRef(false)
   const currentPathRef  = useRef<PathAnn | null>(null)
 
-  // Mirror refs for tool/color/size — read inside event handlers without stale closures
-  const toolRef  = useRef<Tool>('select')
+  // Mirror refs for color/size — read inside event handlers without stale closures
   const colorRef = useRef(PRESET_COLORS[0].hex)
   const sizeRef  = useRef(3)
 
-  // Mirror ref for editingText — used inside commitText callback
-  const editingTextRef = useRef<EditingText | null>(null)
-
   // ── React state (UI only) ─────────────────────────────────────────────────
-  const [tool,        setTool]        = useState<Tool>('select')
   const [color,       setColor]       = useState(PRESET_COLORS[0].hex)
   const [size,        setSize]        = useState(3)
   const [canvasReady, setCanvasReady] = useState(false)
-  const [editingText, setEditingText] = useState<EditingText | null>(null)
   const [feedback,    setFeedback]    = useState('')
   const [submitting,  setSubmitting]  = useState(false)
   const [submitted,   setSubmitted]   = useState(false)
@@ -253,10 +150,8 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Keep refs in sync with state
-  useEffect(() => { toolRef.current  = tool  }, [tool])
   useEffect(() => { colorRef.current = color }, [color])
   useEffect(() => { sizeRef.current  = size  }, [size])
-  useEffect(() => { editingTextRef.current = editingText }, [editingText])
 
   // ── Canvas drawing ────────────────────────────────────────────────────────
 
@@ -270,14 +165,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     if (bgImageRef.current) ctx.drawImage(bgImageRef.current, 0, 0, canvas.width, canvas.height)
 
     for (const ann of annotationsRef.current) {
-      if (ann.type === 'path') {
-        paintPath(ctx, ann)
-      } else {
-        paintText(ctx, ann)
-      }
-      if (ann.id === selectedIdRef.current) {
-        paintSelection(ctx, ann)
-      }
+      paintPath(ctx, ann)
     }
   }, [])
 
@@ -302,41 +190,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     ctx.restore()
   }
 
-  function paintText(ctx: CanvasRenderingContext2D, ann: TextAnn) {
-    ctx.save()
-    ctx.font         = `${ann.fontSize}px Helvetica, Arial, sans-serif`
-    ctx.fillStyle    = ann.color
-    ctx.textBaseline = 'top'   // ann.y is the TOP of the text
-    ctx.fillText(ann.text, ann.x, ann.y)
-    ctx.restore()
-  }
-
-  function paintSelection(ctx: CanvasRenderingContext2D, ann: Ann) {
-    const b = annBounds(ctx, ann)
-    if (!b) return
-    ctx.save()
-    ctx.strokeStyle = 'rgba(59,130,246,0.85)'
-    ctx.lineWidth   = 1.5
-    ctx.setLineDash([5, 3])
-    ctx.strokeRect(b.x - SEL_PAD, b.y - SEL_PAD, b.w + SEL_PAD * 2, b.h + SEL_PAD * 2)
-    ctx.restore()
-  }
-
-  function annBounds(ctx: CanvasRenderingContext2D, ann: Ann) {
-    if (ann.type === 'path') {
-      if (ann.points.length === 0) return null
-      const xs = ann.points.map(p => p.x), ys = ann.points.map(p => p.y)
-      const hw = ann.lineWidth / 2
-      return { x: Math.min(...xs) - hw, y: Math.min(...ys) - hw,
-               w: Math.max(...xs) - Math.min(...xs) + ann.lineWidth,
-               h: Math.max(...ys) - Math.min(...ys) + ann.lineWidth }
-    } else {
-      ctx.font = `${ann.fontSize}px Helvetica, Arial, sans-serif`
-      const w = ctx.measureText(ann.text || 'W').width
-      return { x: ann.x, y: ann.y, w, h: ann.fontSize + 4 }
-    }
-  }
-
   // ── History ───────────────────────────────────────────────────────────────
 
   const saveHistory = useCallback(() => {
@@ -352,6 +205,9 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     if (!canvasRef.current || !container) return
 
     let disposed = false
+
+    // Set draw cursor
+    canvas.style.cursor = 'crosshair'
 
     // ── Load background image ──────────────────────────────────────────────
     const img   = new Image()
@@ -389,48 +245,19 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
       return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy }
     }
 
-    function hitTest(px: number, py: number): string | null {
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return null
-      for (let i = annotationsRef.current.length - 1; i >= 0; i--) {
-        const ann = annotationsRef.current[i]
-        if (ann.type === 'path' && hitPath(ann, px, py)) return ann.id
-        if (ann.type === 'text' && hitText(ctx, ann, px, py)) return ann.id
-      }
-      return null
-    }
-
     // ── Mouse event handlers ───────────────────────────────────────────────
     function onMouseDown(e: MouseEvent) {
       const { x, y } = getPoint(e)
-      const t = toolRef.current
-
-      if (t === 'draw') {
-        const path: PathAnn = {
-          id: uid(), type: 'path',
-          points: [{ x, y }],
-          color: colorRef.current,
-          lineWidth: sizeRef.current,
-        }
-        isDrawingRef.current   = true
-        currentPathRef.current = path
-        annotationsRef.current = [...annotationsRef.current, path]
-        redraw()
-        return
+      const path: PathAnn = {
+        id: uid(), type: 'path',
+        points: [{ x, y }],
+        color: colorRef.current,
+        lineWidth: sizeRef.current,
       }
-
-      if (t === 'select') {
-        selectedIdRef.current = hitTest(x, y)
-        redraw()
-        return
-      }
-
-      if (t === 'text') {
-        // Commit any open text edit first
-        commitTextImmediate()
-        setEditingText({ id: uid(), x: Math.round(x), y: Math.round(y), text: '', color: colorRef.current, fontSize: FONT_SIZE })
-        return
-      }
+      isDrawingRef.current   = true
+      currentPathRef.current = path
+      annotationsRef.current = [...annotationsRef.current, path]
+      redraw()
     }
 
     function onMouseMove(e: MouseEvent) {
@@ -460,20 +287,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     }
   }, [imageUrl, redraw, saveHistory])
 
-  // ── Sync cursor and clear selection when tool changes ─────────────────────
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    canvas.style.cursor =
-      tool === 'draw' ? 'crosshair' :
-      tool === 'text' ? 'text' : 'default'
-    // Deselect when leaving select mode
-    if (tool !== 'select' && selectedIdRef.current) {
-      selectedIdRef.current = null
-      redraw()
-    }
-  }, [tool, redraw])
-
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const handleUndo = useCallback(() => {
@@ -483,66 +296,15 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     annotationsRef.current     = newHistory.length > 0
       ? newHistory[newHistory.length - 1].map(cloneAnn)
       : []
-    selectedIdRef.current      = null
     redraw()
   }, [redraw])
-
-  const handleDeleteSelected = useCallback(() => {
-    const id = selectedIdRef.current
-    if (!id) return
-    annotationsRef.current = annotationsRef.current.filter(a => a.id !== id)
-    selectedIdRef.current  = null
-    saveHistory()
-    redraw()
-  }, [redraw, saveHistory])
-
-  // ── Text editing ──────────────────────────────────────────────────────────
-
-  // Called when committing from outside React (e.g. new text click while editing)
-  function commitTextImmediate() {
-    const et = editingTextRef.current
-    if (!et) return
-    if (et.text.trim()) {
-      annotationsRef.current = [...annotationsRef.current, {
-        id: et.id, type: 'text' as const,
-        x: et.x, y: et.y, text: et.text.trim(),
-        color: et.color, fontSize: et.fontSize,
-      }]
-      saveHistory()
-      redraw()
-    }
-    setEditingText(null)
-  }
-
-  const commitText = useCallback(() => {
-    const et = editingTextRef.current
-    if (!et) return
-    if (et.text.trim()) {
-      annotationsRef.current = [...annotationsRef.current, {
-        id: et.id, type: 'text' as const,
-        x: et.x, y: et.y, text: et.text.trim(),
-        color: et.color, fontSize: et.fontSize,
-      }]
-      saveHistory()
-      redraw()
-    }
-    setEditingText(null)
-  }, [redraw, saveHistory])
-
-  const cancelText = useCallback(() => {
-    setEditingText(null)
-  }, [])
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
   const handleSubmit = async (d: Decision) => {
-    // Commit any open text annotation before exporting
-    commitTextImmediate()
     setSubmitting(true)
     setSubmitError(null)
     try {
-      // Give React one tick to flush the text commit before toDataURL
-      await new Promise(r => setTimeout(r, 50))
       const annotatedImage = canvasRef.current?.toDataURL('image/png') ?? ''
       const webhookUrl     = process.env.NEXT_PUBLIC_WEBHOOK_URL
       if (!webhookUrl) throw new Error('Webhook URL is not configured.')
@@ -567,25 +329,6 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     .split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 
   if (submitted && decision) return <SuccessView decision={decision} designerName={designerName} />
-
-  // ── Textarea position (CSS px, relative to canvas container) ─────────────
-  // ann.y is text top; input top = ann.y; font-size matches canvas text
-  const textareaStyle: React.CSSProperties = editingText ? {
-    position:   'absolute',
-    left:       editingText.x,
-    top:        editingText.y,
-    fontSize:   editingText.fontSize,
-    fontFamily: 'Helvetica Neue, Helvetica, Arial, sans-serif',
-    color:      editingText.color,
-    lineHeight: 1.2,
-    background: 'rgba(255,255,255,0.12)',
-    border:     '1px dashed currentColor',
-    borderRadius: 2,
-    outline:    'none',
-    padding:    '1px 4px',
-    minWidth:   100,
-    zIndex:     10,
-  } : {}
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -613,7 +356,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
         <p className="mt-1.5 text-gray-500 text-sm leading-relaxed"
           style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
           <span className="text-gray-700 font-medium">{designerName}</span> has shared a design for
-          your review. Annotate directly on the image, add written feedback, then submit your decision below.
+          your review. Draw directly on the image, add written feedback, then submit your decision below.
         </p>
       </div>
 
@@ -627,17 +370,11 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
             {/* Toolbar */}
             <div className="mb-3 flex flex-wrap items-center gap-2.5">
 
-              {/* Tools */}
+              {/* Draw tool indicator */}
               <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
-                <ToolButton active={tool === 'select'} onClick={() => setTool('select')} title="Select / move objects">
-                  <SelectIcon />
-                </ToolButton>
-                <ToolButton active={tool === 'draw'} onClick={() => setTool('draw')} title="Freehand draw">
+                <div className="p-2 rounded-md bg-gray-900 text-white">
                   <PencilIcon />
-                </ToolButton>
-                <ToolButton active={tool === 'text'} onClick={() => setTool('text')} title="Add text">
-                  <TextIcon />
-                </ToolButton>
+                </div>
               </div>
 
               {/* Colours */}
@@ -663,20 +400,16 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                 ))}
               </div>
 
-              {/* Undo / delete */}
-              <div className="flex items-center gap-1.5 ml-auto">
+              {/* Undo */}
+              <div className="flex items-center ml-auto">
                 <button onClick={handleUndo} title="Undo last action"
                   className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors shadow-sm">
                   <UndoIcon />
                 </button>
-                <button onClick={handleDeleteSelected} title="Delete selected annotation"
-                  className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors shadow-sm">
-                  <TrashIcon />
-                </button>
               </div>
             </div>
 
-            {/* Canvas wrapper — position:relative so the text input can be positioned inside it */}
+            {/* Canvas wrapper */}
             <div ref={containerRef}
               className="w-full relative overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-gray-100">
               {!canvasReady && (
@@ -686,26 +419,10 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                 </div>
               )}
               <canvas ref={canvasRef} style={{ display: 'block' }} />
-
-              {/* Inline text input — appears on top of canvas when text tool is active */}
-              {editingText && (
-                <input
-                  type="text"
-                  autoFocus
-                  value={editingText.text}
-                  style={textareaStyle}
-                  onChange={e => setEditingText(prev => prev ? { ...prev, text: e.target.value } : null)}
-                  onBlur={commitText}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter')  { e.preventDefault(); commitText() }
-                    if (e.key === 'Escape') { e.preventDefault(); cancelText() }
-                  }}
-                />
-              )}
             </div>
 
             <p className="mt-2 text-xs text-gray-400" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
-              Draw or add text annotations directly on the image. Use the toolbar above to switch tools.
+              Draw directly on the image to annotate. Use the toolbar above to change colour or size.
             </p>
           </div>
 
