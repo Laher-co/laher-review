@@ -18,13 +18,21 @@ function toDirectUrl(parsed: URL): URL {
   }
 
   // ── Google Drive ─────────────────────────────────────────────────────────
-  // Sharing URLs:  https://drive.google.com/file/d/FILE_ID/view?usp=sharing
-  // Direct URL:    https://drive.google.com/uc?export=download&id=FILE_ID
+  // Handled formats:
+  //   /file/d/FILE_ID/view             (with or without ?usp=sharing)
+  //   /file/d/FILE_ID/view?usp=sharing
+  //   /open?id=FILE_ID
+  // All converted to: https://drive.google.com/uc?export=download&id=FILE_ID
   if (host.includes('drive.google.com')) {
-    const match = parsed.pathname.match(/\/file\/d\/([^/]+)/)
-    if (match) {
-      const fileId = match[1]
-      return new URL(`https://drive.google.com/uc?export=download&id=${fileId}`)
+    // Format 1 & 2: /file/d/FILE_ID/...
+    const pathMatch = parsed.pathname.match(/\/file\/d\/([^/?#]+)/)
+    if (pathMatch) {
+      return new URL(`https://drive.google.com/uc?export=download&id=${pathMatch[1]}`)
+    }
+    // Format 3: /open?id=FILE_ID  or  any path with ?id=FILE_ID
+    const idParam = parsed.searchParams.get('id')
+    if (idParam) {
+      return new URL(`https://drive.google.com/uc?export=download&id=${idParam}`)
     }
   }
 
