@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
-  const webhookUrl = process.env.WEBHOOK_URL
+  const webhookUrl = process.env.webhook_url || process.env.WEBHOOK_URL
   if (!webhookUrl) {
     return NextResponse.json({ error: 'Webhook URL is not configured.' }, { status: 500 })
   }
