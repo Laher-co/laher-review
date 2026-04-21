@@ -1,4 +1,6 @@
 {
-  "/api/proxy/route": "app/api/proxy/route.js",
-  "/page": "app/page.js"
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/submit/route": "app/api/submit/route.js",
+  "/page": "app/page.js",
+  "/api/proxy/route": "app/api/proxy/route.js"
 }
