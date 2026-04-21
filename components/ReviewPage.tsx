@@ -309,7 +309,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
 
       <div className="max-w-7xl mx-auto px-6 pt-8 pb-5">
         <h2 className="font-inter text-[1.6rem] font-light text-gray-900 leading-tight">
-          Hello, {displayName}
+          Your Bespoke Design Renders
         </h2>
         <p className="mt-1.5 text-gray-500 text-sm leading-relaxed"
           style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
