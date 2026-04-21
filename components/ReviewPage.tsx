@@ -76,17 +76,20 @@ function SuccessView({ decision, designerName }: { decision: Decision; designerN
         </div>
       </header>
       <div className="flex-1 flex items-center justify-center px-6">
-        <div className="text-center max-w-sm">
-          <div className="flex justify-center mb-6">
+        <div className="text-center max-w-md">
+          <div className="flex justify-center mb-8">
             {approved ? <CheckCircleIcon /> : <ClockIcon />}
           </div>
-          <h2 className="font-inter text-2xl font-light text-gray-900 mb-3">
-            {approved ? 'Design Approved' : 'Changes Requested'}
+          <h2 className="font-inter text-3xl font-light text-gray-900 mb-4">
+            {approved ? 'Thank you!' : 'Feedback received'}
           </h2>
-          <p className="text-gray-500 text-sm leading-relaxed" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
+          <p className="text-gray-500 text-sm leading-relaxed mb-2" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
             {approved
               ? `Your approval has been sent to ${designerName}. They'll be in touch soon to progress your order.`
               : `Your feedback has been sent to ${designerName}. They'll review your notes and get back to you with an updated design.`}
+          </p>
+          <p className="text-gray-400 text-xs mt-6" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
+            You can close this window.
           </p>
         </div>
       </div>
@@ -248,15 +251,31 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const annotatedImage = canvasRef.current?.toDataURL('image/png') ?? ''
-      const webhookUrl     = process.env.NEXT_PUBLIC_WEBHOOK_URL
-      if (!webhookUrl) throw new Error('Webhook URL is not configured.')
-      const res = await fetch(webhookUrl, {
+      // Build the payload for the webhook
+      const payload: Record<string, unknown> = {
+        action:   d,
+        cardId,
+        email:    customerEmail,
+        designer: designerName,
+      }
+
+      // Only include feedback and annotated image when requesting changes
+      if (d === 'changes_requested') {
+        payload.feedback       = feedback
+        payload.annotatedImage = canvasRef.current?.toDataURL('image/png') ?? ''
+      }
+
+      // POST via server-side route so WEBHOOK_URL stays off the client
+      const res = await fetch('/api/submit', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardId, customerEmail, designerName, decision: d, feedback, annotatedImage, submittedAt: new Date().toISOString() }),
+        body:    JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error(`Server responded with ${res.status}.`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error ?? `Server responded with ${res.status}.`)
+      }
+
       setDecision(d)
       setSubmitted(true)
     } catch (err: unknown) {
