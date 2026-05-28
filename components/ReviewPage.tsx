@@ -406,6 +406,11 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                 </p>
               )}
 
+              <p className="text-xs text-gray-400 mb-3 leading-relaxed"
+                style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
+                When approving, please reference which version you're approving in your feedback below.
+              </p>
+
               <button onClick={() => handleSubmit('approved')} disabled={submitting || !ready}
                 className="w-full py-3.5 bg-gray-900 text-white rounded-lg font-inter text-sm font-medium tracking-wide hover:bg-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed mb-3">
                 {submitting ? 'Submitting…' : 'Approve Design'}
