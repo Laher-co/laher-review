@@ -408,7 +408,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
 
               <p className="text-xs text-gray-400 mb-3 leading-relaxed"
                 style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
-                When approving, please reference which version you're approving in your feedback below.
+                If there is more than one version, please specify in the comments which version you are approving.
               </p>
 
               <button onClick={() => handleSubmit('approved')} disabled={submitting || !ready}
