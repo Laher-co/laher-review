@@ -124,6 +124,11 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   const [submitted,   setSubmitted]   = useState(false)
   const [decision,    setDecision]    = useState<Decision | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [hasStrokes,  setHasStrokes]  = useState(false)
+
+  // Guards against a fast double-tap sending two submissions before the
+  // disabled state re-renders
+  const submittingRef = useRef(false)
 
   // Keep mirrors in sync
   useEffect(() => { colorRef.current = color }, [color])
@@ -169,7 +174,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
       ctx.restore()
     }
 
-    function toCanvas(e: MouseEvent) {
+    function toCanvas(e: PointerEvent) {
       const r  = canvas!.getBoundingClientRect()
       return {
         x: (e.clientX - r.left) * (canvas!.width  / r.width),
@@ -177,32 +182,45 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
       }
     }
 
-    function onDown(e: MouseEvent) {
+    // Pointer events cover mouse, touch and stylus. Only the primary pointer
+    // draws, so a second finger (pinch) doesn't start a stray stroke.
+    function onDown(e: PointerEvent) {
+      if (!e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return
+      e.preventDefault()
+      // Keeps the stroke going if the finger slides off the canvas edge.
+      // Best-effort: drawing must still work if capture isn't available.
+      try { canvas!.setPointerCapture(e.pointerId) } catch {}
+      // Brush sizes are in on-screen pixels, so lines look the same thickness
+      // on a phone (where the canvas is scaled down) as on desktop.
+      const scale = canvas!.width / canvas!.getBoundingClientRect().width
       drawingRef.current = true
-      activeRef.current  = { points: [toCanvas(e)], color: colorRef.current, width: widthRef.current }
+      activeRef.current  = { points: [toCanvas(e)], color: colorRef.current, width: widthRef.current * scale }
       redraw()
     }
 
-    function onMove(e: MouseEvent) {
-      if (!drawingRef.current || !activeRef.current) return
+    function onMove(e: PointerEvent) {
+      if (!drawingRef.current || !activeRef.current || !e.isPrimary) return
+      e.preventDefault()
       activeRef.current.points.push(toCanvas(e))
       redraw()
     }
 
-    function onUp() {
-      if (!drawingRef.current || !activeRef.current) return
+    function onUp(e: PointerEvent) {
+      if (!drawingRef.current || !activeRef.current || !e.isPrimary) return
       strokesRef.current = [...strokesRef.current, activeRef.current]
       activeRef.current  = null
       drawingRef.current = false
+      setHasStrokes(true)
       redraw()
     }
 
     // Expose redraw so the undo button can call it
     ;(canvas as unknown as { _redraw: () => void })._redraw = redraw
 
-    canvas.addEventListener('mousedown', onDown)
-    canvas.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    canvas.addEventListener('pointerdown', onDown)
+    canvas.addEventListener('pointermove', onMove)
+    canvas.addEventListener('pointerup', onUp)
+    canvas.addEventListener('pointercancel', onUp)
 
     // Load background image — size the pixel buffer to the image's natural
     // dimensions (capped at 1600px wide). CSS w-full stretches the canvas to
@@ -230,9 +248,10 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     return () => {
       cancelled = true
       img.src   = ''
-      canvas.removeEventListener('mousedown', onDown)
-      canvas.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      canvas.removeEventListener('pointerdown', onDown)
+      canvas.removeEventListener('pointermove', onMove)
+      canvas.removeEventListener('pointerup', onUp)
+      canvas.removeEventListener('pointercancel', onUp)
     }
   }, [imageUrl])
 
@@ -241,6 +260,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   function handleUndo() {
     if (strokesRef.current.length === 0) return
     strokesRef.current = strokesRef.current.slice(0, -1)
+    setHasStrokes(strokesRef.current.length > 0)
     const canvas = canvasRef.current as unknown as { _redraw: () => void }
     canvas._redraw()
   }
@@ -248,6 +268,8 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
   // ── Submit ────────────────────────────────────────────────────────────────
 
   async function handleSubmit(d: Decision) {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -257,11 +279,13 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
         cardId,
         email:    customerEmail,
         designer: designerName,
+        feedback,
       }
 
-      // Only include feedback and annotated image when requesting changes
-      if (d === 'changes_requested') {
-        payload.feedback       = feedback
+      // Approvals often say which version they're approving in the comments,
+      // so feedback is always sent. The annotated image is sent whenever
+      // there's a drawing, and always for change requests (as before).
+      if (d === 'changes_requested' || hasStrokes) {
         payload.annotatedImage = canvasRef.current?.toDataURL('image/png') ?? ''
       }
 
@@ -281,6 +305,7 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -368,7 +393,8 @@ export default function ReviewPage({ customerEmail, designerName, imageUrl, card
                     style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>Loading design…</span>
                 </div>
               )}
-              <canvas ref={canvasRef} className="block w-full cursor-crosshair" />
+              {/* touch-action: none stops finger drags from scrolling the page */}
+              <canvas ref={canvasRef} className="block w-full cursor-crosshair touch-none select-none" />
             </div>
 
             <p className="mt-2 text-xs text-gray-400" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>

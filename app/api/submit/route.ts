@@ -98,6 +98,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
   }
 
+  // Strip stray brackets, quotes and whitespace from the card ID (Zapier has
+  // previously passed through IDs with a trailing "]")
+  if (typeof body.cardId === 'string') {
+    body = { ...body, cardId: body.cardId.replace(/^[\s[\]"']+|[\s[\]"']+$/g, '') }
+  }
+
   // Upload base64 annotated image to imgbb → replace with public URL
   if (typeof body.annotatedImage === 'string' && body.annotatedImage.startsWith('data:')) {
     try {

@@ -62,8 +62,11 @@ export async function GET(request: NextRequest) {
   parsed = toDirectUrl(parsed)
   console.log('[proxy] resolved url:', parsed.href)
 
-  // If the caller requests Trello auth, append credentials from env vars
-  if (useToken) {
+  // If the caller requests Trello auth, append credentials from env vars.
+  // Only ever for Trello's own hosts — otherwise anyone could point the proxy
+  // at their own server and read the key and token off the request.
+  const isTrelloHost = parsed.hostname === 'trello.com' || parsed.hostname === 'api.trello.com'
+  if (useToken && isTrelloHost) {
     const apiKey = process.env.TRELLO_API_KEY
     const token  = process.env.TRELLO_TOKEN
     console.log('[proxy] Trello auth — key present:', !!apiKey, '| token present:', !!token)
@@ -71,7 +74,8 @@ export async function GET(request: NextRequest) {
     if (token)  parsed.searchParams.set('token', token)
   }
 
-  console.log('[proxy] fetching:', parsed.href)
+  // Log without the query string so credentials never land in the logs
+  console.log('[proxy] fetching:', parsed.origin + parsed.pathname)
 
   try {
     const response = await fetch(parsed.href, {
