@@ -102,7 +102,7 @@ export function RingSizeBar({ code, size, status }: { code: string; size: string
 
 // ── Sheet (full screen on phones, centred panel on desktop) ──────────────────
 
-function Sheet({ title, onClose, children, footer }: {
+export function Sheet({ title, onClose, children, footer }: {
   title: string; onClose(): void; children: React.ReactNode; footer?: React.ReactNode
 }) {
   const close = useRef(onClose)
@@ -532,7 +532,7 @@ function ChangesFlow({ code, designer, version, options, storageKey, onClose }:
   )
 }
 
-function DrawEditor({ render, initial, onSave, onCancel }: {
+export function DrawEditor({ render, initial, onSave, onCancel }: {
   render: Render; initial?: Stroke[]; onSave(strokes: Stroke[], preview: string | null): void; onCancel(): void
 }) {
   const ref = useRef<DrawingHandle>(null)

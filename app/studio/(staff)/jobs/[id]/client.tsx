@@ -4,7 +4,7 @@ import Image from 'next/image'
 import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
-  addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, moveRender, publishVersion,
+  addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, moveRender, publishVersion, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -317,6 +317,72 @@ export function RingSizeControl({ jobId, size, status, confirmedBy, confirmedAt 
         </div>
       )}
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+
+export type StaffThreadMessage = {
+  id: string; author: 'customer' | 'staff'; staffName: string | null; body: string; drawings: string[]; when: string
+}
+
+export function StaffThread({ jobId, versionId, title, customerName, messages }: {
+  jobId: string; versionId: string | null; title: string; customerName: string; messages: StaffThreadMessage[]
+}) {
+  const { pending, error, run } = useAction()
+  const [body, setBody] = useState('')
+  const [viewing, setViewing] = useState<{ urls: string[]; i: number } | null>(null)
+  const last = messages[messages.length - 1]
+  const awaitingReply = last?.author === 'customer'
+
+  return (
+    <div className={`rounded-xl border p-4 ${awaitingReply ? 'border-amber-300 bg-amber-50/50' : 'border-sand bg-white/60'}`}>
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h3 className="text-sm font-semibold uppercase tracking-widest text-cocoa-light">{title}</h3>
+        {awaitingReply && <Badge tone="warn">Awaiting reply</Badge>}
+      </div>
+      {messages.length === 0 && <p className="mt-2 text-sm text-stone">No messages yet.</p>}
+      <ol className="mt-3 space-y-2.5">
+        {messages.map(m => {
+          const staffMsg = m.author === 'staff'
+          return (
+            <li key={m.id} className={`flex ${staffMsg ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${staffMsg ? 'rounded-br-md bg-cocoa text-ivory' : 'rounded-bl-md border border-sand bg-white text-ink'}`}>
+                <p className={`mb-0.5 text-[11px] uppercase tracking-wider ${staffMsg ? 'text-ivory/70' : 'text-cocoa-light'}`}>
+                  {staffMsg ? m.staffName ?? 'Studio' : customerName} · {m.when}
+                </p>
+                {m.body && <p className="whitespace-pre-line text-sm leading-relaxed">{m.body}</p>}
+                {m.drawings.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {m.drawings.map((u, i) => (
+                      <button key={u} type="button" onClick={() => setViewing({ urls: m.drawings, i })}
+                        className="relative h-16 w-16 overflow-hidden rounded-lg border border-sand bg-white">
+                        <Image src={u} alt="Customer drawing" fill sizes="64px" className="object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+        <textarea value={body} onChange={e => setBody(e.target.value)} rows={2} maxLength={4000}
+          placeholder={`Reply to ${customerName.split(' ')[0]}…`}
+          className="flex-1 rounded-lg border border-sand bg-white px-3 py-2.5 text-base focus:border-cocoa focus:outline-none sm:text-sm" />
+        <button className={btnPrimary} disabled={pending || !body.trim()}
+          onClick={() => run(async () => { await sendStaffReply(jobId, versionId, body); setBody('') })}>
+          {pending && <Spinner />} Send reply
+        </button>
+      </div>
+      <p className="mt-1.5 text-xs text-stone">The customer sees replies on their review page. Reply emails start in Phase 4.</p>
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+      {viewing && (
+        <Lightbox start={viewing.i} onClose={() => setViewing(null)}
+          images={viewing.urls.map((u, i) => ({ url: u, alt: `Drawing ${i + 1}`, caption: 'Customer drawing' }))} />
+      )}
     </div>
   )
 }

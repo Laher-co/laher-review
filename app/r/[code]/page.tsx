@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { asc, eq } from 'drizzle-orm'
-import { db, decisions } from '@/lib/db'
+import { db, decisions, messages, staff } from '@/lib/db'
 import { getJobByCode, loadVersions, type FullVersion } from '@/lib/jobs'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel } from '@/lib/feedback'
@@ -9,6 +9,7 @@ import { Wordmark } from '@/components/brand'
 import LightboxThumbs from '@/components/LightboxThumbs'
 import Gallery from './Gallery'
 import { ApproveButton, RequestChangesButton, RingSizeBar } from './client'
+import MessageThread, { type ThreadMessage } from './messages'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Your design — LAHER', robots: { index: false, follow: false } }
@@ -19,10 +20,19 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
   const row = await getJobByCode(params.code)
   if (!row) notFound()
   const { job, designerName } = row
-  const [published, allDecisions] = await Promise.all([
+  const [published, allDecisions, allMessages] = await Promise.all([
     loadVersions(job.id, { publishedOnly: true }),
     db.select().from(decisions).where(eq(decisions.jobId, job.id)).orderBy(asc(decisions.createdAt)),
+    db.select({ m: messages, staffName: staff.name }).from(messages)
+      .leftJoin(staff, eq(staff.id, messages.staffId))
+      .where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
   ])
+  const thread = (versionId: string | null): ThreadMessage[] => allMessages
+    .filter(({ m }) => m.versionId === versionId)
+    .map(({ m, staffName }) => ({
+      id: m.id, author: m.author, staffName, body: m.body,
+      drawings: m.annotations.map(a => a.drawingUrl), when: formatSydney(m.createdAt),
+    }))
   const designer = designerName ?? 'Your designer'
   const firstName = job.customerName.split(' ')[0]
   const stage = jobStage({
@@ -37,7 +47,7 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
   // message the studio at every stage.
   const section = (v: FullVersion, isLatest: boolean) => (
     <VersionSection key={v.id} version={v} latest={isLatest}
-      decisions={allDecisions.filter(d => d.versionId === v.id)}
+      decisions={allDecisions.filter(d => d.versionId === v.id)} messages={thread(v.id)}
       code={job.publicCode} designer={designer} ringSizeStatus={job.ringSizeStatus} />
   )
 
@@ -86,6 +96,14 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
             )}
           </>
         )}
+
+        {/* Always available: before, during and after approval */}
+        <section className="mt-16" id="message-the-studio">
+          <MessageThread code={job.publicCode} versionId={null} renders={[]} messages={thread(null)}
+            heading="Have another thought? Message the studio"
+            intro={`Questions, ideas or anything else. ${designer} and the studio team will reply here.`}
+            placeholder="Write a message to the studio…" />
+        </section>
       </main>
     </div>
   )
@@ -111,8 +129,8 @@ function StageBanner({ stage, designer }: { stage: Stage; designer: string }) {
   )
 }
 
-function VersionSection({ version: v, latest, decisions: ds, code, designer, ringSizeStatus }: {
-  version: FullVersion; latest: boolean; decisions: Decision[]
+function VersionSection({ version: v, latest, decisions: ds, messages: msgs, code, designer, ringSizeStatus }: {
+  version: FullVersion; latest: boolean; decisions: Decision[]; messages: ThreadMessage[]
   code: string; designer: string; ringSizeStatus: 'unconfirmed' | 'submitted' | 'confirmed'
 }) {
   const multi = v.options.length > 1
@@ -163,6 +181,14 @@ function VersionSection({ version: v, latest, decisions: ds, code, designer, rin
           {[...ds].reverse().map(d => <DecisionSummary key={d.id} decision={d} version={v} />)}
         </div>
       )}
+
+      <div className="mt-8">
+        <MessageThread code={code} versionId={v.id} messages={msgs}
+          renders={v.options.flatMap(o => o.renders.map(r => ({ id: r.id, url: r.blobUrl })))}
+          heading={`Comments on ${title}`}
+          intro="Ask a question or leave a note about this version. You can draw on the design too."
+          placeholder={`Write a comment about ${title}…`} />
+      </div>
     </section>
   )
 }

@@ -1,9 +1,9 @@
 'use server'
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { put } from '@vercel/blob'
-import { db, decisions, jobs, options, renders, staff, versions, type Annotation, type ChangeRequest } from '@/lib/db'
+import { db, decisions, jobs, messages, options, renders, staff, versions, type Annotation, type ChangeRequest } from '@/lib/db'
 import { emitWebhook, logEvent } from '@/lib/events'
 import { jobPayload } from '@/lib/payload'
 import { openWaiting } from '@/lib/waiting'
@@ -120,18 +120,7 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
     .map(c => ({ area: c.area, note: String(c.note ?? '').trim().slice(0, 2000) }))
   const comments = input.comments.trim().slice(0, 4000)
 
-  // Drawings must be on this version's renders and stored under this job
-  const versionRenders = await db.select({ id: renders.id, url: renders.blobUrl }).from(renders)
-    .innerJoin(options, eq(options.id, renders.optionId))
-    .where(eq(options.versionId, version.id))
-  const annotations: Annotation[] = []
-  for (const a of approved ? [] : input.annotations.slice(0, 12)) {
-    const render = versionRenders.find(r => r.id === a.renderId)
-    let url: URL
-    try { url = new URL(a.drawingUrl) } catch { continue }
-    if (!render || !url.hostname.endsWith('.public.blob.vercel-storage.com') || !url.pathname.startsWith(`/annotations/${job.id}/`)) continue
-    annotations.push({ renderId: render.id, renderUrl: render.url, drawingUrl: a.drawingUrl, strokes: limitStrokes(a.strokes) })
-  }
+  const annotations = approved ? [] : await checkedAnnotations(job.id, version.id, input.annotations)
 
   if (!approved && !changes.some(c => c.note) && !comments && annotations.length === 0) {
     return { ok: false, error: 'Please tell us what you’d like changed.' }
@@ -227,6 +216,24 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   return { ok: true }
 }
 
+type AnnotationInput = { renderId: string; drawingUrl: string; strokes: Stroke[] }
+
+/** Keeps only drawings on this version's renders that were uploaded under this job. */
+async function checkedAnnotations(jobId: string, versionId: string, input: AnnotationInput[]): Promise<Annotation[]> {
+  const versionRenders = await db.select({ id: renders.id, url: renders.blobUrl }).from(renders)
+    .innerJoin(options, eq(options.id, renders.optionId))
+    .where(eq(options.versionId, versionId))
+  const out: Annotation[] = []
+  for (const a of input.slice(0, 12)) {
+    const render = versionRenders.find(r => r.id === a.renderId)
+    let url: URL
+    try { url = new URL(a.drawingUrl) } catch { continue }
+    if (!render || !url.hostname.endsWith('.public.blob.vercel-storage.com') || !url.pathname.startsWith(`/annotations/${jobId}/`)) continue
+    out.push({ renderId: render.id, renderUrl: render.url, drawingUrl: a.drawingUrl, strokes: limitStrokes(a.strokes) })
+  }
+  return out
+}
+
 /** Caps stored stroke data (~5,000 points per drawing) and drops malformed input. */
 function limitStrokes(strokes: unknown): Stroke[] {
   if (!Array.isArray(strokes)) return []
@@ -242,4 +249,70 @@ function limitStrokes(strokes: unknown): Stroke[] {
     if (budget <= 0) break
   }
   return out
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+
+export type MessageInput = {
+  clientKey: string
+  versionId: string | null        // null = the general "message the studio" thread
+  body: string
+  annotations: AnnotationInput[]  // only on a version's thread
+}
+
+/**
+ * A customer message, on a version's thread or the general one. Available at
+ * every stage (after changes or approval too). Starts the response timer,
+ * posts to Trello and sends a v2 webhook.
+ */
+export async function sendCustomerMessage(code: string, input: MessageInput): Promise<Result> {
+  const { job, designerName } = await jobForCode(code)
+  const body = input.body.trim().slice(0, 4000)
+
+  const version = input.versionId ? await publishedVersion(job.id, input.versionId) : null
+  if (input.versionId && !version) return { ok: false, error: 'That version isn’t available. Please refresh the page.' }
+  const annotations = version ? await checkedAnnotations(job.id, version.id, input.annotations) : []
+  if (!body && annotations.length === 0) return { ok: false, error: 'Please write a message.' }
+
+  // Simple guard against a runaway script: plenty for a real customer
+  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(messages)
+    .where(and(eq(messages.jobId, job.id), eq(messages.author, 'customer'), gt(messages.createdAt, sql`now() - interval '1 hour'`)))
+  if (n >= 30) return { ok: false, error: 'You’ve sent a lot of messages in the last hour. Please try again a little later.' }
+
+  const inserted = await db.insert(messages).values({
+    jobId: job.id, versionId: version?.id ?? null, author: 'customer', body, annotations,
+    clientKey: input.clientKey.slice(0, 64) || null,
+  }).onConflictDoNothing({ target: messages.clientKey }).returning()
+  if (inserted.length === 0) return { ok: true } // same send arriving twice
+  await db.update(jobs).set({ updatedAt: new Date() }).where(eq(jobs.id, job.id))
+
+  const where = version ? versionTitle(version.number) : 'General'
+  const blocks = [`**MESSAGE FROM CUSTOMER: ${where}**`]
+  if (body) blocks.push(body)
+  if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
+  blocks.push(`Reply in the studio: ${studioLink(job.id)}`)
+  await tracked('trello_comment', job.id, `Post the customer’s message (${where}) on the Trello card`,
+    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: blocks.join('\n\n') } })
+  for (const [i, a] of annotations.entries()) {
+    const name = `Message drawing ${i + 1} – ${where}`
+    await tracked('trello_attachment', job.id, `Attach ${name} to the Trello card`,
+      { type: 'trello.attach', args: { cardId: job.trelloCardId, url: a.drawingUrl, name } })
+  }
+
+  await openWaiting(job.id, 'message')
+  await logEvent(job.id, null, 'customer_message', { messageId: inserted[0].id, version: version?.number ?? null })
+  await emitWebhook(job.id, 'message_created', {
+    ...jobPayload(job, designerName),
+    message: {
+      id: inserted[0].id,
+      author: 'customer',
+      thread: version ? 'version' : 'general',
+      version: version ? { number: version.number, title: versionTitle(version.number) } : null,
+      body,
+      drawings: annotations.map(a => ({ renderUrl: a.renderUrl, drawingUrl: a.drawingUrl })),
+    },
+    actor: { type: 'customer' },
+  })
+  revalidatePath(`/r/${code}`)
+  return { ok: true }
 }

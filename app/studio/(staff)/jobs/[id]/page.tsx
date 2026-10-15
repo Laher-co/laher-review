@@ -1,12 +1,12 @@
 import { notFound } from 'next/navigation'
-import { and, eq, inArray } from 'drizzle-orm'
-import { db, decisions, events, staff } from '@/lib/db'
+import { and, asc, eq, inArray } from 'drizzle-orm'
+import { db, decisions, events, messages, staff } from '@/lib/db'
 import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
 import { Badge } from '@/components/brand'
-import { CopyLink, DraftVersion, NewVersionButton, RingSizeControl } from './client'
+import { CopyLink, DraftVersion, NewVersionButton, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
 import LightboxThumbs from '@/components/LightboxThumbs'
 
 export const metadata = { title: 'Job — LAHER Studio' }
@@ -16,7 +16,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
   if (!row) notFound()
   const { job, designerName } = row
 
-  const [allVersions, people, card, jobEvents, jobDecisions] = await Promise.all([
+  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages] = await Promise.all([
     loadVersions(job.id),
     db.select({ id: staff.id, name: staff.name }).from(staff),
     // Read live so a "Do not email" label added in Trello shows straight away
@@ -24,7 +24,14 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     db.select({ type: events.type, details: events.details }).from(events)
       .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested']))),
     db.select().from(decisions).where(eq(decisions.jobId, job.id)),
+    db.select().from(messages).where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
   ])
+  const thread = (versionId: string | null): StaffThreadMessage[] => jobMessages
+    .filter(m => m.versionId === versionId)
+    .map(m => ({
+      id: m.id, author: m.author, staffName: m.staffId ? people.find(p => p.id === m.staffId)?.name ?? null : null,
+      body: m.body, drawings: m.annotations.map(a => a.drawingUrl), when: formatSydney(m.createdAt),
+    }))
   // What happened on Trello when each version was published / answered
   type Outcome = { moved: boolean; from?: string; to?: string; reason?: string }
   const outcome = (types: string[]) => new Map(jobEvents.filter(e => types.includes(e.type)).map(e => {
@@ -88,6 +95,9 @@ export default async function JobPage({ params }: { params: { id: string } }) {
         </dl>
       </section>
 
+      {/* General conversation (not tied to a version) */}
+      <StaffThread jobId={job.id} versionId={null} title="General messages" customerName={job.customerName} messages={thread(null)} />
+
       {/* Draft being prepared */}
       {draft
         ? <DraftVersion jobId={job.id} version={draft} title={versionTitle(draft.number)} doNotEmail={doNotEmail} />
@@ -128,6 +138,10 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             <DecisionCard key={d.id} decision={d} options={v.options} versionNumber={v.number} trello={decisionOutcome.get(d.id)} />
           ))}
           {v.designerNote && <p className="mt-4 whitespace-pre-line text-sm text-ink"><span className="text-stone">Note to customer: </span>{v.designerNote}</p>}
+          <div className="mt-4">
+            <StaffThread jobId={job.id} versionId={v.id} title={`Comments on ${versionTitle(v.number)}`}
+              customerName={job.customerName} messages={thread(v.id)} />
+          </div>
           <div className="mt-4 space-y-4">
             {v.options.map(o => (
               <div key={o.id}>

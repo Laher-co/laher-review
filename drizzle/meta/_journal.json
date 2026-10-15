@@ -29,6 +29,13 @@
       "when": 1792106235121,
       "tag": "0003_issues_and_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792107663769,
+      "tag": "0004_message_client_key",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { del } from '@vercel/blob'
-import { db, jobs, options, renders, staff, versions, waiting } from '@/lib/db'
+import { db, jobs, messages, options, renders, staff, versions, waiting } from '@/lib/db'
 import { checkStaffPassword, requireStaff } from '@/lib/auth'
 import { SESSION_COOKIE, SESSION_DAYS, signSession } from '@/lib/session'
 import { emitWebhook, logEvent } from '@/lib/events'
@@ -16,6 +16,7 @@ import {
 } from '@/lib/trello'
 import { moveOutcome, retryIssue, setIssueStatus, tracked } from '@/lib/issues'
 import { jobPayload } from '@/lib/payload'
+import { answerWaiting } from '@/lib/waiting'
 import { extractEmail, descriptionSection, parseRingSize } from '@/lib/trello-parse'
 
 // ── Sign in / out ─────────────────────────────────────────────────────────────
@@ -392,4 +393,50 @@ export async function setIssueStatusAction(issueId: string, status: 'resolved' |
   const session = await requireStaff()
   await setIssueStatus(issueId, status, session.staffId)
   revalidatePath('/studio/issues')
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+
+/** A staff reply on a version's thread or the general thread. Answers the job's queue item. */
+export async function sendStaffReply(jobId: string, versionId: string | null, rawBody: string) {
+  const session = await requireStaff()
+  const body = rawBody.trim().slice(0, 4000)
+  if (!body) throw new Error('Write a reply first.')
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
+  if (!job) throw new Error('Job not found.')
+  let version: typeof versions.$inferSelect | undefined
+  if (versionId) {
+    ;[version] = await db.select().from(versions)
+      .where(and(eq(versions.id, versionId), eq(versions.jobId, jobId), eq(versions.status, 'published')))
+    if (!version) throw new Error('That version isn’t published.')
+  }
+
+  const [msg] = await db.insert(messages).values({
+    jobId, versionId: version?.id ?? null, author: 'staff', staffId: session.staffId, body,
+  }).returning()
+  await db.update(jobs).set({ updatedAt: new Date() }).where(eq(jobs.id, jobId))
+
+  // A reply answers the job's queue item, unless another thread is still unanswered
+  await answerWaiting(jobId, session.staffId)
+
+  const where = version ? versionTitle(version.number) : 'General'
+  await tracked('trello_comment', jobId, `Post ${session.name}’s reply (${where}) on the Trello card`, {
+    type: 'trello.comment',
+    args: { cardId: job.trelloCardId, text: `**STUDIO REPLY (${session.name}): ${where}**\n\n${body}` },
+  })
+
+  const [designer] = job.designerId ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
+  await logEvent(jobId, session.staffId, 'staff_reply', { messageId: msg.id, version: version?.number ?? null })
+  await emitWebhook(jobId, 'message_created', {
+    ...jobPayload(job, designer?.name ?? null),
+    message: {
+      id: msg.id, author: 'staff', staffName: session.name,
+      thread: version ? 'version' : 'general',
+      version: version ? { number: version.number, title: versionTitle(version.number) } : null,
+      body, drawings: [],
+    },
+    actor: { type: 'staff', name: session.name },
+  })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath(`/r/${job.publicCode}`)
 }

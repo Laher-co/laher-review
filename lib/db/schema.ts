@@ -109,6 +109,8 @@ export const messages = pgTable('messages', {
   staffId:     uuid('staff_id').references(() => staff.id),
   body:        text('body').notNull(),
   annotations: jsonb('annotations').$type<Annotation[]>().notNull().default([]),
+  // One per send, generated in the browser: a double-tap can't post twice
+  clientKey:   text('client_key').unique(),
   createdAt:   createdAt(),
 }, t => [index('messages_job').on(t.jobId, t.createdAt)])
 
