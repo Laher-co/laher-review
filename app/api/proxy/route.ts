@@ -65,21 +65,25 @@ export async function GET(request: NextRequest) {
   // If the caller requests Trello auth, append credentials from env vars.
   // Only ever for Trello's own hosts — otherwise anyone could point the proxy
   // at their own server and read the key and token off the request.
+  // Trello only accepts credentials for attachment downloads in an
+  // Authorization header (key/token query params get a 401). fetch drops the
+  // header when Trello redirects to its file storage on another host.
+  const headers: Record<string, string> = { 'User-Agent': 'Laher-Review/1.0' }
   const isTrelloHost = parsed.hostname === 'trello.com' || parsed.hostname === 'api.trello.com'
   if (useToken && isTrelloHost) {
     const apiKey = process.env.TRELLO_API_KEY
     const token  = process.env.TRELLO_TOKEN
     console.log('[proxy] Trello auth — key present:', !!apiKey, '| token present:', !!token)
-    if (apiKey) parsed.searchParams.set('key',   apiKey)
-    if (token)  parsed.searchParams.set('token', token)
+    if (apiKey && token) {
+      headers.Authorization = `OAuth oauth_consumer_key="${apiKey}", oauth_token="${token}"`
+    }
   }
 
-  // Log without the query string so credentials never land in the logs
   console.log('[proxy] fetching:', parsed.origin + parsed.pathname)
 
   try {
     const response = await fetch(parsed.href, {
-      headers: { 'User-Agent': 'Laher-Review/1.0' },
+      headers,
       cache: 'no-store',
     })
 
