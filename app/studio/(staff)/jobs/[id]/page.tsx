@@ -4,7 +4,7 @@ import { db, decisions, events, staff } from '@/lib/db'
 import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
-import { areaLabel } from '@/lib/feedback'
+import { areaLabel, decisionHeading } from '@/lib/feedback'
 import { Badge } from '@/components/brand'
 import { CopyLink, DraftVersion, NewVersionButton, RingSizeControl } from './client'
 import LightboxThumbs from '@/components/LightboxThumbs'
@@ -32,7 +32,13 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     return [d.number ?? d.version, d.trello] as const
   }))
   const publishOutcome  = outcome(['version_published'])
-  const decisionOutcome = outcome(['design_approved', 'changes_requested'])
+  // Each response's Trello outcome, keyed by decision id
+  const decisionOutcome = new Map(jobEvents
+    .filter(e => e.type === 'design_approved' || e.type === 'changes_requested')
+    .map(e => {
+      const d = e.details as { decisionId?: string; trello?: Outcome }
+      return [d.decisionId, d.trello] as const
+    }))
   const nameOf = (id: string | null) => people.find(p => p.id === id)?.name ?? '—'
   const draft = allVersions.find(v => v.status === 'draft')
   const published = allVersions.filter(v => v.status === 'published')
@@ -52,6 +58,12 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             {doNotEmail && <Badge tone="danger">Do not email</Badge>}
           </div>
         </div>
+        {job.status === 'approved_size_needed' && (
+          <p className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <strong>Approved – size outstanding.</strong> The customer approved but isn’t sure of their ring size.
+            Confirming a size below moves the Trello card to Print Ready.
+          </p>
+        )}
         <RingSizeControl jobId={job.id} size={job.ringSize} status={job.ringSizeStatus}
           confirmedBy={job.ringSizeConfirmedBy ? nameOf(job.ringSizeConfirmedBy) : null}
           confirmedAt={job.ringSizeConfirmedAt ? formatSydney(job.ringSizeConfirmedAt) : null} />
@@ -95,7 +107,8 @@ export default async function JobPage({ params }: { params: { id: string } }) {
       {/* Published history, newest first */}
       {published.map(v => {
         const t = publishOutcome.get(v.number)
-        const d = jobDecisions.find(x => x.versionId === v.id)
+        const ds = jobDecisions.filter(x => x.versionId === v.id)
+          .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
         return (
         <section key={v.id} className="rounded-2xl border border-sand bg-white/50 p-5 sm:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -111,7 +124,9 @@ export default async function JobPage({ params }: { params: { id: string } }) {
                 : t.from === t.to ? `Trello card already in “${t.to}”.` : `Trello card moved to “${t.to}”.`}
             </p>
           )}
-          {d && <DecisionCard decision={d} options={v.options} trello={decisionOutcome.get(v.number)} />}
+          {ds.map(d => (
+            <DecisionCard key={d.id} decision={d} options={v.options} versionNumber={v.number} trello={decisionOutcome.get(d.id)} />
+          ))}
           {v.designerNote && <p className="mt-4 whitespace-pre-line text-sm text-ink"><span className="text-stone">Note to customer: </span>{v.designerNote}</p>}
           <div className="mt-4 space-y-4">
             {v.options.map(o => (
@@ -144,19 +159,22 @@ function TrelloLine({ t }: { t?: { moved: boolean; from?: string; to?: string; r
   )
 }
 
-function DecisionCard({ decision: d, options, trello }: {
-  decision: DecisionRow; options: { id: string; label: string }[]; trello?: { moved: boolean; from?: string; to?: string; reason?: string }
+function DecisionCard({ decision: d, options, versionNumber, trello }: {
+  decision: DecisionRow; options: { id: string; label: string }[]; versionNumber: number
+  trello?: { moved: boolean; from?: string; to?: string; reason?: string }
 }) {
   const approved = d.decision === 'approved'
   const option = options.find(o => o.id === d.optionId)
   const notes = d.changes.filter(c => c.note)
+  const heading = decisionHeading({
+    decision: d.decision, sizeOutstanding: d.sizeOutstanding, versionTitle: versionTitle(versionNumber),
+    optionLabel: option?.label, optionCount: options.length,
+  })
+  const tone = !approved ? 'border-amber-200 bg-amber-50/60' : d.sizeOutstanding ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/60'
   return (
-    <div className={`mt-4 rounded-xl border p-4 ${approved ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={approved ? 'ok' : 'warn'}>{approved ? 'Approved' : 'Changes requested'}</Badge>
-        {option && options.length > 1 && (
-          <span className="text-sm text-ink">{approved ? 'Chose' : 'Closest to'} <strong>Option {option.label}</strong></span>
-        )}
+    <div className={`mt-4 rounded-xl border p-4 ${tone}`}>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <p className="text-sm font-semibold tracking-wide text-ink">{heading}</p>
         <span className="ml-auto text-xs text-stone">{formatSydney(d.createdAt)}</span>
       </div>
       <TrelloLine t={trello} />
@@ -168,7 +186,7 @@ function DecisionCard({ decision: d, options, trello }: {
       {d.comments && <p className="mt-2 whitespace-pre-line text-sm text-ink">“{d.comments}”</p>}
       {d.annotations.length > 0 && (
         <LightboxThumbs className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5"
-          images={d.annotations.map((a, i) => ({ url: a.drawingUrl, alt: `Customer drawing ${i + 1}`, caption: 'Customer drawing' }))} />
+          images={d.annotations.map((a, i) => ({ url: a.drawingUrl, alt: `Customer drawing ${i + 1}`, caption: heading }))} />
       )}
     </div>
   )

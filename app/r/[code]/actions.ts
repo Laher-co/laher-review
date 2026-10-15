@@ -1,6 +1,6 @@
 'use server'
 
-import { and, desc, eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { put } from '@vercel/blob'
 import { db, decisions, jobs, options, renders, staff, versions, type Annotation, type ChangeRequest } from '@/lib/db'
@@ -9,8 +9,8 @@ import { jobPayload } from '@/lib/payload'
 import { openWaiting } from '@/lib/waiting'
 import { siteOrigin } from '@/lib/jobs'
 import { versionTitle } from '@/lib/format'
-import { areaLabel, CHANGE_AREAS } from '@/lib/feedback'
-import { addComment, getCard, moveCardToStage, writeRingSizeFields, type MoveResult } from '@/lib/trello'
+import { areaLabel, CHANGE_AREAS, decisionHeading } from '@/lib/feedback'
+import { addComment, attachUrl, getCard, moveCardToStage, writeRingSizeFields, type MoveResult } from '@/lib/trello'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -24,10 +24,10 @@ async function jobForCode(code: string) {
   return row
 }
 
-async function latestPublished(jobId: string) {
+/** A published version of this job (any version, not just the latest). */
+async function publishedVersion(jobId: string, versionId: string) {
   const [v] = await db.select().from(versions)
-    .where(and(eq(versions.jobId, jobId), eq(versions.status, 'published')))
-    .orderBy(desc(versions.number)).limit(1)
+    .where(and(eq(versions.id, versionId), eq(versions.jobId, jobId), eq(versions.status, 'published')))
   return v ?? null
 }
 
@@ -66,7 +66,7 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
 
 /**
  * Saves one annotated render (render + drawing flattened to JPEG). Called once
- * per drawing before the decision is submitted, so each request stays small.
+ * per drawing before the change request is submitted, so each request stays small.
  */
 export async function uploadAnnotation(code: string, form: FormData): Promise<{ drawingUrl: string; renderUrl: string } | { error: string }> {
   const { job } = await jobForCode(code)
@@ -75,13 +75,14 @@ export async function uploadAnnotation(code: string, form: FormData): Promise<{ 
   if (!(file instanceof Blob) || file.type !== 'image/jpeg') return { error: 'Drawing upload failed.' }
   if (file.size > 3.5 * 1024 * 1024) return { error: 'That drawing is too large to upload.' }
 
-  const latest = await latestPublished(job.id)
-  const [r] = await db.select({ render: renders, versionId: options.versionId })
-    .from(renders).innerJoin(options, eq(options.id, renders.optionId))
-    .where(eq(renders.id, renderId))
-  if (!latest || !r || r.versionId !== latest.id) return { error: 'You can only draw on the latest version.' }
+  const [r] = await db.select({ render: renders, version: versions })
+    .from(renders)
+    .innerJoin(options, eq(options.id, renders.optionId))
+    .innerJoin(versions, eq(versions.id, options.versionId))
+    .where(and(eq(renders.id, renderId), eq(versions.jobId, job.id), eq(versions.status, 'published')))
+  if (!r) return { error: 'That image isn’t part of your design.' }
 
-  const blob = await put(`annotations/${job.id}/v${latest.number}/${renderId}.jpg`, file, {
+  const blob = await put(`annotations/${job.id}/v${r.version.number}/${renderId}.jpg`, file, {
     access: 'public', addRandomSuffix: true, contentType: 'image/jpeg',
   })
   return { drawingUrl: blob.url, renderUrl: r.render.blobUrl }
@@ -90,93 +91,130 @@ export async function uploadAnnotation(code: string, form: FormData): Promise<{ 
 // ── Approve / request changes ─────────────────────────────────────────────────
 
 export type DecisionInput = {
+  clientKey: string                 // one per submission, generated in the browser
   versionId: string
   decision: 'approved' | 'changes_requested'
-  optionId: string | null
+  optionId: string | null           // required when the version has several options
   changes: ChangeRequest[]
   comments: string
   annotations: { renderId: string; drawingUrl: string; strokes: Stroke[] }[]
+  // Asked for on approval when the ring size is still unconfirmed
+  ringSize?: { size: string } | { notSure: true }
 }
 
 const AREA_KEYS = new Set<string>(CHANGE_AREAS.map(a => a.key))
 
 export async function submitDecision(code: string, input: DecisionInput): Promise<Result> {
   const { job, designerName } = await jobForCode(code)
-  const latest = await latestPublished(job.id)
-  if (!latest || latest.id !== input.versionId) {
-    return { ok: false, error: 'A newer version is available. Please refresh the page.' }
-  }
+  const version = await publishedVersion(job.id, input.versionId)
+  if (!version) return { ok: false, error: 'That version isn’t available. Please refresh the page.' }
+  const approved = input.decision === 'approved'
 
-  const versionOptions = await db.select().from(options).where(eq(options.versionId, latest.id))
-  const option = input.optionId ? versionOptions.find(o => o.id === input.optionId) ?? null : null
-  if (input.optionId && !option) return { ok: false, error: 'Please choose one of the options shown.' }
-  if (input.decision === 'approved' && versionOptions.length > 1 && !option) {
-    return { ok: false, error: 'Please choose which option you’re approving.' }
-  }
+  // Every response is tied to one version AND one option
+  const versionOptions = await db.select().from(options).where(eq(options.versionId, version.id))
+  const option = versionOptions.length === 1
+    ? versionOptions[0]
+    : versionOptions.find(o => o.id === input.optionId) ?? null
+  if (!option) return { ok: false, error: 'Please choose which option this is about.' }
 
-  const changes = input.decision === 'changes_requested'
-    ? input.changes
-        .filter(c => AREA_KEYS.has(c.area))
-        .map(c => ({ area: c.area, note: String(c.note ?? '').trim().slice(0, 2000) }))
-    : []
+  const changes = approved ? [] : input.changes
+    .filter(c => AREA_KEYS.has(c.area))
+    .map(c => ({ area: c.area, note: String(c.note ?? '').trim().slice(0, 2000) }))
   const comments = input.comments.trim().slice(0, 4000)
 
   // Drawings must be on this version's renders and stored under this job
   const versionRenders = await db.select({ id: renders.id, url: renders.blobUrl }).from(renders)
     .innerJoin(options, eq(options.id, renders.optionId))
-    .where(eq(options.versionId, latest.id))
+    .where(eq(options.versionId, version.id))
   const annotations: Annotation[] = []
-  for (const a of input.annotations.slice(0, 12)) {
+  for (const a of approved ? [] : input.annotations.slice(0, 12)) {
     const render = versionRenders.find(r => r.id === a.renderId)
-    const url = new URL(a.drawingUrl)
+    let url: URL
+    try { url = new URL(a.drawingUrl) } catch { continue }
     if (!render || !url.hostname.endsWith('.public.blob.vercel-storage.com') || !url.pathname.startsWith(`/annotations/${job.id}/`)) continue
     annotations.push({ renderId: render.id, renderUrl: render.url, drawingUrl: a.drawingUrl, strokes: limitStrokes(a.strokes) })
   }
 
-  if (input.decision === 'changes_requested' && !changes.some(c => c.note) && !comments && annotations.length === 0) {
+  if (!approved && !changes.some(c => c.note) && !comments && annotations.length === 0) {
     return { ok: false, error: 'Please tell us what you’d like changed.' }
   }
 
-  // One decision per version; the unique index stops a double-tap creating two
+  // Ring size: an unconfirmed size must be given (or "not sure") when approving
+  let submittedSize: string | null = null
+  let sizeOutstanding = false
+  if (approved && job.ringSizeStatus === 'unconfirmed') {
+    if (input.ringSize && 'size' in input.ringSize && input.ringSize.size.trim()) {
+      submittedSize = input.ringSize.size.trim().slice(0, 40)
+    } else if (input.ringSize && 'notSure' in input.ringSize) {
+      sizeOutstanding = true
+    } else {
+      return { ok: false, error: 'Please add your ring size, or choose “Not sure of my size”.' }
+    }
+  }
+
   const inserted = await db.insert(decisions).values({
-    jobId: job.id, versionId: latest.id, optionId: option?.id ?? null,
+    jobId: job.id, versionId: version.id, optionId: option.id,
     decision: input.decision, changes, comments: comments || null, annotations,
-  }).onConflictDoNothing({ target: decisions.versionId }).returning()
-  if (inserted.length === 0) return { ok: false, error: 'We’ve already received your response to this version.' }
+    sizeOutstanding, clientKey: input.clientKey.slice(0, 64) || null,
+  }).onConflictDoNothing({ target: decisions.clientKey }).returning()
+  // Same submission arriving twice (double-tap, retry): already recorded
+  if (inserted.length === 0) return { ok: true }
 
-  const approved = input.decision === 'approved'
-  const [updated] = await db.update(jobs)
-    .set({ status: approved ? 'approved' : 'changes_requested', updatedAt: new Date() })
-    .where(eq(jobs.id, job.id)).returning()
+  const [updated] = await db.update(jobs).set({
+    status: !approved ? 'changes_requested' : sizeOutstanding ? 'approved_size_needed' : 'approved',
+    ...(submittedSize ? { ringSize: submittedSize, ringSizeStatus: 'submitted' as const, ringSizeSubmittedAt: new Date() } : {}),
+    updatedAt: new Date(),
+  }).where(eq(jobs.id, job.id)).returning()
 
-  // Trello: same designer's Print Ready / Alterations list, plus a summary comment
+  const heading = decisionHeading({
+    decision: input.decision, sizeOutstanding, versionTitle: versionTitle(version.number),
+    optionLabel: option.label, optionCount: versionOptions.length,
+  })
+
+  // Trello: bold header first, then the changes, then the drawings. The card
+  // moves to the same designer's Alterations / Print Ready list — except an
+  // approval without a ring size, which waits for staff to confirm one.
   let trello: MoveResult | { moved: false; reason: string; currentList: string }
   try {
-    trello = await moveCardToStage(job.trelloCardId, approved ? 'Print Ready' : 'Alterations')
-    const optionText = option && versionOptions.length > 1 ? `, Option ${option.label}` : ''
-    const lines = approved
-      ? [`Customer APPROVED ${versionTitle(latest.number)}${optionText}.`]
-      : [`Customer requested changes to ${versionTitle(latest.number)}${optionText ? ` (closest: ${optionText.slice(2)})` : ''}:`,
-         ...changes.filter(c => c.note).map(c => `• ${areaLabel(c.area)}: ${c.note}`)]
-    if (comments) lines.push(`Comments: ${comments}`)
-    if (annotations.length) lines.push(`Drawings: ${annotations.map(a => a.drawingUrl).join(' ')}`)
-    lines.push(`Studio: ${studioLink(job.id)}`)
-    await addComment(job.trelloCardId, lines.join('\n'))
+    // Blocks separated by one blank line: header, changes, comments, size, drawings
+    const blocks = [`**${heading}**`]
+    const notes = changes.filter(c => c.note).map(c => `• **${areaLabel(c.area)}:** ${c.note}`)
+    if (notes.length) blocks.push(notes.join('\n'))
+    if (comments) blocks.push(`Comments: ${comments}`)
+    if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (awaiting confirmation)`)
+    if (sizeOutstanding) blocks.push('Customer isn’t sure of their ring size. The card stays here until staff confirm a size in the studio.')
+    if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
+    blocks.push(`Studio: ${studioLink(job.id)}`)
+    await addComment(job.trelloCardId, blocks.join('\n\n'))
+    for (const [i, a] of annotations.entries()) {
+      await attachUrl(job.trelloCardId, a.drawingUrl, `Drawing ${i + 1} – ${heading.replace('CHANGES REQUESTED: ', '')}`)
+    }
+    if (submittedSize) {
+      const card = await getCard(job.trelloCardId)
+      if (card) await writeRingSizeFields(card, submittedSize, 'Customer submitted')
+    }
+    trello = sizeOutstanding
+      ? { moved: false, reason: 'Approved without a ring size: waiting for staff to confirm one', currentList: '' }
+      : await moveCardToStage(job.trelloCardId, approved ? 'Print Ready' : 'Alterations')
   } catch (err) {
     trello = { moved: false, reason: err instanceof Error ? err.message : String(err), currentList: '' }
   }
 
   await openWaiting(job.id, 'decision')
-  await logEvent(job.id, null, approved ? 'design_approved' : 'changes_requested', { version: latest.number, trello })
+  await logEvent(job.id, null, approved ? 'design_approved' : 'changes_requested', {
+    version: version.number, option: option.label, decisionId: inserted[0].id, sizeOutstanding, trello,
+  })
   await emitWebhook(job.id, 'decision_submitted', {
     ...jobPayload(updated, designerName),
     decision: {
       type: input.decision,
-      version: { number: latest.number, title: versionTitle(latest.number) },
-      option: option ? { label: option.label } : null,
+      heading,
+      version: { number: version.number, title: versionTitle(version.number) },
+      option: { label: option.label },
       optionCount: versionOptions.length,
       changes: changes.map(c => ({ ...c, label: areaLabel(c.area) })),
       comments: comments || null,
+      sizeOutstanding,
       // Strokes stay in the database; Zapier gets the images
       drawings: annotations.map(a => ({ renderUrl: a.renderUrl, drawingUrl: a.drawingUrl })),
     },

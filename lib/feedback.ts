@@ -27,3 +27,20 @@ export const RING_SIZE_STATUS_LABEL = {
   submitted:   'Submitted – awaiting confirmation',
   confirmed:   'Confirmed',
 } as const
+
+/**
+ * The one wording used everywhere a response is shown (Trello, Studio,
+ * customer page), e.g. "CHANGES REQUESTED: Version Two, Option B".
+ */
+export function decisionHeading(d: {
+  decision: 'approved' | 'changes_requested'
+  sizeOutstanding?: boolean
+  versionTitle: string
+  optionLabel?: string | null
+  optionCount: number
+}) {
+  const what = d.decision === 'changes_requested' ? 'CHANGES REQUESTED'
+    : d.sizeOutstanding ? 'APPROVED – SIZE OUTSTANDING' : 'APPROVED'
+  const option = d.optionLabel && d.optionCount > 1 ? `, Option ${d.optionLabel}` : ''
+  return `${what}: ${d.versionTitle}${option}`
+}

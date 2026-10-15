@@ -133,6 +133,11 @@ export async function addComment(cardId: string, text: string) {
   await trello('POST', `/cards/${cardId}/actions/comments`, { text })
 }
 
+/** Attaches an image by URL so it shows as a thumbnail on the card. */
+export async function attachUrl(cardId: string, url: string, name: string) {
+  await trello('POST', `/cards/${cardId}/attachments`, { url, name, setCover: false })
+}
+
 /** Mirrors the app's ring size onto the card's custom fields. */
 export async function writeRingSizeFields(
   card: TrelloCard, size: string | null, status: 'Unconfirmed' | 'Customer submitted' | 'Confirmed',

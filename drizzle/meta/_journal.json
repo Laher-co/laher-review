@@ -15,6 +15,13 @@
       "when": 1792032215753,
       "tag": "0001_one_decision_per_version",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792039656309,
+      "tag": "0002_decisions_per_option",
+      "breakpoints": true
     }
   ]
 }

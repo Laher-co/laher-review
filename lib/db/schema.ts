@@ -5,7 +5,7 @@ import {
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
 export const staffRole        = pgEnum('staff_role', ['designer', 'va', 'admin'])
-export const jobStatus        = pgEnum('job_status', ['draft', 'in_review', 'changes_requested', 'approved', 'closed'])
+export const jobStatus        = pgEnum('job_status', ['draft', 'in_review', 'changes_requested', 'approved', 'approved_size_needed', 'closed'])
 export const ringSizeStatus   = pgEnum('ring_size_status', ['unconfirmed', 'submitted', 'confirmed'])
 export const versionStatus    = pgEnum('version_status', ['draft', 'published'])
 export const authorType       = pgEnum('author_type', ['customer', 'staff'])
@@ -115,12 +115,13 @@ export const decisions = pgTable('decisions', {
   changes:     jsonb('changes').$type<ChangeRequest[]>().notNull().default([]),
   comments:    text('comments'),
   annotations: jsonb('annotations').$type<Annotation[]>().notNull().default([]),
+  // Approved without a ring size: the card waits for staff to confirm one
+  sizeOutstanding: boolean('size_outstanding').notNull().default(false),
+  // Generated once per submission in the browser, so a double-tap or retry
+  // can't record the same response twice
+  clientKey:   text('client_key').unique(),
   createdAt:   createdAt(),
-}, t => [
-  index('decisions_job').on(t.jobId, t.createdAt),
-  // One decision per version (also stops a double-tap submitting twice)
-  uniqueIndex('decisions_version').on(t.versionId),
-])
+}, t => [index('decisions_job').on(t.jobId, t.createdAt)])
 
 // One open row per job at most: the single queue and response timer
 export const waiting = pgTable('waiting', {

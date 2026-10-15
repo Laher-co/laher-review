@@ -183,3 +183,28 @@ function simplify(s: Stroke): Stroke {
   }
   return { ...s, width: +s.width.toFixed(4), points: out }
 }
+
+/**
+ * Renders strokes over an image off-screen and returns a JPEG (max 1600px
+ * wide). Lets an unsent drawing be kept as stroke data only and turned back
+ * into an image when it's sent or previewed.
+ */
+export function renderDrawingJpeg(src: string, strokes: Stroke[]): Promise<Blob | null> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const scale = Math.min(1, 1600 / img.naturalWidth)
+      const c = document.createElement('canvas')
+      c.width = Math.round(img.naturalWidth * scale)
+      c.height = Math.round(img.naturalHeight * scale)
+      const ctx = c.getContext('2d')
+      if (!ctx) return resolve(null)
+      ctx.drawImage(img, 0, 0, c.width, c.height)
+      for (const s of strokes) paint(ctx, s, c.width, c.height)
+      c.toBlob(b => resolve(b), 'image/jpeg', 0.85)
+    }
+    img.onerror = () => resolve(null)
+    img.src = src
+  })
+}

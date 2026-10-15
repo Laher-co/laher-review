@@ -347,30 +347,40 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
   const size = rawSize.trim().slice(0, 40)
   if (!size) throw new Error('Enter the ring size to confirm.')
 
+  const [before] = await db.select({ status: jobs.status }).from(jobs).where(eq(jobs.id, jobId))
+  if (!before) throw new Error('Job not found.')
+  // An approval that was waiting on the ring size can now go ahead
+  const releasesApproval = before.status === 'approved_size_needed'
+
   const [job] = await db.update(jobs).set({
     ringSize: size, ringSizeStatus: 'confirmed',
     ringSizeConfirmedBy: session.staffId, ringSizeConfirmedAt: new Date(), updatedAt: new Date(),
+    ...(releasesApproval ? { status: 'approved' as const } : {}),
   }).where(eq(jobs.id, jobId)).returning()
-  if (!job) throw new Error('Job not found.')
 
   // Confirming answers a waiting ring size submission
   await db.update(waiting).set({ answeredAt: new Date(), answeredBy: session.staffId })
     .where(and(eq(waiting.jobId, jobId), eq(waiting.reason, 'ring_size'), isNull(waiting.answeredAt)))
 
+  let trello: MoveResult | { moved: false; reason: string; currentList: string } | null = null
   try {
     const card = await getCard(job.trelloCardId)
     if (card) {
       await writeRingSizeFields(card, size, 'Confirmed')
       await removeLabel(card, 'Finger Size TBC')
-      await addComment(card.id, `Finger size confirmed: ${size} (by ${session.name})`)
+      await addComment(card.id, releasesApproval
+        ? `**RING SIZE CONFIRMED: ${size}** (by ${session.name})\n\nThe approved design can now go ahead: moving to Print Ready.`
+        : `Finger size confirmed: ${size} (by ${session.name})`)
+      if (releasesApproval) trello = await moveCardToStage(card.id, 'Print Ready')
     }
   } catch (err) {
     console.error('[confirmRingSize] Trello:', err)
+    if (releasesApproval) trello = { moved: false, reason: err instanceof Error ? err.message : String(err), currentList: '' }
   }
 
   const [designer] = job.designerId
     ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
-  await logEvent(job.id, session.staffId, 'ring_size_confirmed', { size })
+  await logEvent(job.id, session.staffId, 'ring_size_confirmed', { size, releasesApproval, trello })
   await emitWebhook(job.id, 'ring_size_confirmed', { ...jobPayload(job, designer?.name ?? null), actor: { type: 'staff', name: session.name } })
   revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath(`/r/${job.publicCode}`)

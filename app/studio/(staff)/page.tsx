@@ -11,6 +11,7 @@ const STATUS: Record<string, { label: string; tone: 'neutral' | 'cocoa' | 'warn'
   in_review:         { label: 'With customer',     tone: 'cocoa' },
   changes_requested: { label: 'Changes requested', tone: 'warn' },
   approved:          { label: 'Approved',          tone: 'ok' },
+  approved_size_needed: { label: 'Approved – size needed', tone: 'warn' },
   closed:            { label: 'Closed',            tone: 'neutral' },
 }
 
