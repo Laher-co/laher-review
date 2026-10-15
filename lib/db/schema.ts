@@ -116,7 +116,11 @@ export const decisions = pgTable('decisions', {
   comments:    text('comments'),
   annotations: jsonb('annotations').$type<Annotation[]>().notNull().default([]),
   createdAt:   createdAt(),
-}, t => [index('decisions_job').on(t.jobId, t.createdAt)])
+}, t => [
+  index('decisions_job').on(t.jobId, t.createdAt),
+  // One decision per version (also stops a double-tap submitting twice)
+  uniqueIndex('decisions_version').on(t.versionId),
+])
 
 // One open row per job at most: the single queue and response timer
 export const waiting = pgTable('waiting', {

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "decisions_version" ON "decisions" USING btree ("version_id");

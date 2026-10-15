@@ -1,20 +1,21 @@
 'use server'
 
-import { and, asc, eq, max, ne, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, max, ne, sql } from 'drizzle-orm'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { del } from '@vercel/blob'
-import { db, jobs, options, renders, staff, versions } from '@/lib/db'
+import { db, jobs, options, renders, staff, versions, waiting } from '@/lib/db'
 import { checkStaffPassword, requireStaff } from '@/lib/auth'
 import { SESSION_COOKIE, SESSION_DAYS, signSession } from '@/lib/session'
 import { emitWebhook, logEvent } from '@/lib/events'
 import { getOptionContext, loadVersions, newPublicCode, reviewUrl } from '@/lib/jobs'
 import { optionLabel, versionTitle } from '@/lib/format'
 import {
-  cardFunnel, cardHasLabel, ensureLabel, getCard, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP,
-  moveCardToStage, readRingSizeFields, writeRingSizeFields, type MoveResult,
+  addComment, cardFunnel, cardHasLabel, ensureLabel, getCard, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP,
+  moveCardToStage, readRingSizeFields, removeLabel, writeRingSizeFields, type MoveResult,
 } from '@/lib/trello'
+import { jobPayload } from '@/lib/payload'
 import { extractEmail, descriptionSection, parseRingSize } from '@/lib/trello-parse'
 
 // ── Sign in / out ─────────────────────────────────────────────────────────────
@@ -336,4 +337,41 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
   revalidatePath(`/studio/jobs/${job.id}`)
   revalidatePath(`/r/${job.publicCode}`)
   return { ok: true, reviewUrl: url, trello, doNotEmail }
+}
+
+// ── Ring size ─────────────────────────────────────────────────────────────────
+
+/** Only staff can mark a ring size confirmed. */
+export async function confirmRingSize(jobId: string, rawSize: string) {
+  const session = await requireStaff()
+  const size = rawSize.trim().slice(0, 40)
+  if (!size) throw new Error('Enter the ring size to confirm.')
+
+  const [job] = await db.update(jobs).set({
+    ringSize: size, ringSizeStatus: 'confirmed',
+    ringSizeConfirmedBy: session.staffId, ringSizeConfirmedAt: new Date(), updatedAt: new Date(),
+  }).where(eq(jobs.id, jobId)).returning()
+  if (!job) throw new Error('Job not found.')
+
+  // Confirming answers a waiting ring size submission
+  await db.update(waiting).set({ answeredAt: new Date(), answeredBy: session.staffId })
+    .where(and(eq(waiting.jobId, jobId), eq(waiting.reason, 'ring_size'), isNull(waiting.answeredAt)))
+
+  try {
+    const card = await getCard(job.trelloCardId)
+    if (card) {
+      await writeRingSizeFields(card, size, 'Confirmed')
+      await removeLabel(card, 'Finger Size TBC')
+      await addComment(card.id, `Finger size confirmed: ${size} (by ${session.name})`)
+    }
+  } catch (err) {
+    console.error('[confirmRingSize] Trello:', err)
+  }
+
+  const [designer] = job.designerId
+    ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
+  await logEvent(job.id, session.staffId, 'ring_size_confirmed', { size })
+  await emitWebhook(job.id, 'ring_size_confirmed', { ...jobPayload(job, designer?.name ?? null), actor: { type: 'staff', name: session.name } })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath(`/r/${job.publicCode}`)
 }

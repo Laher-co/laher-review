@@ -4,11 +4,12 @@ import Image from 'next/image'
 import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
-  addOption, addRender, createVersion, deleteDraftVersion, moveRender, publishVersion,
+  addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, moveRender, publishVersion,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
-import { Spinner } from '@/components/brand'
+import { Badge, Spinner } from '@/components/brand'
+import { RING_SIZE_STATUS_LABEL } from '@/lib/feedback'
 
 const btn = 'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm transition-colors disabled:opacity-50'
 const btnPrimary = `${btn} bg-cocoa text-ivory hover:bg-cocoa-dark`
@@ -266,5 +267,48 @@ export function DraftVersion({ jobId, version, title, doNotEmail }: {
       </div>
       {error && <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
     </section>
+  )
+}
+
+// ── Ring size ─────────────────────────────────────────────────────────────────
+
+export function RingSizeControl({ jobId, size, status, confirmedBy, confirmedAt }: {
+  jobId: string; size: string | null; status: 'unconfirmed' | 'submitted' | 'confirmed'
+  confirmedBy: string | null; confirmedAt: string | null
+}) {
+  const { pending, error, run } = useAction()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(size ?? '')
+  const tone = status === 'confirmed' ? 'ok' : status === 'submitted' ? 'cocoa' : 'warn'
+
+  return (
+    <div className={`mt-4 rounded-xl border p-4 ${status === 'submitted' ? 'border-cocoa/40 bg-linen' : 'border-sand bg-ivory'}`}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-xs uppercase tracking-widest text-cocoa-light">Ring size</span>
+        <strong className="text-lg text-ink">{size ?? '—'}</strong>
+        <Badge tone={tone}>{RING_SIZE_STATUS_LABEL[status]}</Badge>
+        {status === 'confirmed' && confirmedBy && <span className="text-xs text-stone">by {confirmedBy}, {confirmedAt}</span>}
+        {!editing && (
+          <button className="ml-auto text-sm text-cocoa underline" onClick={() => setEditing(true)}>
+            {status === 'confirmed' ? 'Change' : status === 'submitted' ? 'Check & confirm' : 'Confirm a size'}
+          </button>
+        )}
+      </div>
+      {status === 'submitted' && !editing && (
+        <p className="mt-1 text-sm text-cocoa-dark">The customer submitted this size. Check it, then confirm.</p>
+      )}
+      {editing && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. M ½" maxLength={40}
+            className="w-40 rounded-lg border border-sand bg-white px-3 py-2 text-base focus:border-cocoa focus:outline-none" />
+          <button className={btnPrimary} disabled={pending || !value.trim()}
+            onClick={() => run(async () => { await confirmRingSize(jobId, value); setEditing(false) })}>
+            {pending && <Spinner />} Mark confirmed
+          </button>
+          <button className="text-sm text-stone underline" onClick={() => { setEditing(false); setValue(size ?? '') }}>Cancel</button>
+        </div>
+      )}
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+    </div>
   )
 }
