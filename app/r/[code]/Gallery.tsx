@@ -2,16 +2,19 @@
 
 import Image from 'next/image'
 import { useRef, useState } from 'react'
+import Lightbox from '@/components/Lightbox'
 
 type Render = { id: string; url: string; width: number | null; height: number | null }
 
 /**
  * One large render with thumbnails underneath. On phones the main image
- * swipes left/right; tapping it opens the full-resolution file.
+ * swipes left/right; tapping it opens the full-screen viewer.
  */
 export default function Gallery({ renders, alt }: { renders: Render[]; alt: string }) {
   const [index, setIndex] = useState(0)
+  const [viewing, setViewing] = useState(false)
   const touchX = useRef<number | null>(null)
+  const swipedAt = useRef(0) // a swipe shouldn't also open the viewer
   if (renders.length === 0) return null
   const current = renders[index]
   const go = (i: number) => setIndex((i + renders.length) % renders.length)
@@ -24,14 +27,14 @@ export default function Gallery({ renders, alt }: { renders: Render[]; alt: stri
           if (touchX.current === null) return
           const dx = e.changedTouches[0].clientX - touchX.current
           touchX.current = null
-          if (Math.abs(dx) > 40) go(index + (dx < 0 ? 1 : -1))
+          if (Math.abs(dx) > 40) { swipedAt.current = Date.now(); go(index + (dx < 0 ? 1 : -1)) }
         }}>
-        <a href={current.url} target="_blank" rel="noreferrer" className="block">
+        <button type="button" onClick={() => { if (Date.now() - swipedAt.current > 400) setViewing(true) }} aria-label="View full screen" className="block w-full cursor-zoom-in">
           <Image key={current.id} src={current.url} alt={`${alt}, image ${index + 1} of ${renders.length}`}
             width={current.width ?? 1600} height={current.height ?? 1200}
             sizes="(min-width: 768px) 720px, 100vw" priority={index === 0}
             className="h-auto w-full" />
-        </a>
+        </button>
         {renders.length > 1 && (
           <>
             <ArrowButton side="left" onClick={() => go(index - 1)} />
@@ -42,6 +45,11 @@ export default function Gallery({ renders, alt }: { renders: Render[]; alt: stri
           </>
         )}
       </div>
+
+      {viewing && (
+        <Lightbox start={index} onClose={() => setViewing(false)}
+          images={renders.map((r, i) => ({ url: r.url, alt: `${alt}, image ${i + 1}`, caption: alt }))} />
+      )}
 
       {renders.length > 1 && (
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">

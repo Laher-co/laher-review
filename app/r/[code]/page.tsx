@@ -6,6 +6,7 @@ import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel } from '@/lib/feedback'
 import { Wordmark } from '@/components/brand'
 import Gallery from './Gallery'
+import LightboxThumbs from '@/components/LightboxThumbs'
 import { DecisionPanel, RingSizeBar } from './client'
 
 export const dynamic = 'force-dynamic'
@@ -151,15 +152,8 @@ function DecisionSummary({ decision: d, version: v }: { decision: Decision; vers
       )}
       {d.comments && <p className="mt-3 whitespace-pre-line text-[15px] text-ink">{d.comments}</p>}
       {d.annotations.length > 0 && (
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {d.annotations.map(a => (
-            <a key={a.drawingUrl} href={a.drawingUrl} target="_blank" rel="noreferrer"
-              className="block overflow-hidden rounded-lg border border-sand">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={a.drawingUrl} alt="Your drawing" className="h-auto w-full" />
-            </a>
-          ))}
-        </div>
+        <LightboxThumbs className="mt-4 grid grid-cols-3 gap-2" sizes="33vw"
+          images={d.annotations.map((a, i) => ({ url: a.drawingUrl, alt: `Your drawing ${i + 1}`, caption: 'Your drawing' }))} />
       )}
     </div>
   )

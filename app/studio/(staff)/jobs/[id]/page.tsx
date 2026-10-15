@@ -1,4 +1,3 @@
-import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db, decisions, events, staff } from '@/lib/db'
@@ -8,6 +7,7 @@ import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel } from '@/lib/feedback'
 import { Badge } from '@/components/brand'
 import { CopyLink, DraftVersion, NewVersionButton, RingSizeControl } from './client'
+import LightboxThumbs from '@/components/LightboxThumbs'
 
 export const metadata = { title: 'Job — LAHER Studio' }
 
@@ -117,14 +117,10 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             {v.options.map(o => (
               <div key={o.id}>
                 {v.options.length > 1 && <p className="mb-2 text-xs uppercase tracking-widest text-cocoa-light">Option {o.label}</p>}
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                  {o.renders.map(r => (
-                    <a key={r.id} href={r.blobUrl} target="_blank" rel="noreferrer"
-                      className="relative block aspect-square overflow-hidden rounded-lg border border-sand bg-linen">
-                      <Image src={r.blobUrl} alt="" fill sizes="(min-width: 640px) 200px, 33vw" className="object-cover" />
-                    </a>
-                  ))}
-                </div>
+                <LightboxThumbs images={o.renders.map((r, i) => ({
+                  url: r.blobUrl, alt: `${versionTitle(v.number)} Option ${o.label} render ${i + 1}`,
+                  caption: `${versionTitle(v.number)}${v.options.length > 1 ? `, Option ${o.label}` : ''}`,
+                }))} />
               </div>
             ))}
           </div>
@@ -171,14 +167,8 @@ function DecisionCard({ decision: d, options, trello }: {
       )}
       {d.comments && <p className="mt-2 whitespace-pre-line text-sm text-ink">“{d.comments}”</p>}
       {d.annotations.length > 0 && (
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
-          {d.annotations.map(a => (
-            <a key={a.drawingUrl} href={a.drawingUrl} target="_blank" rel="noreferrer"
-              className="relative block aspect-square overflow-hidden rounded-lg border border-sand bg-white">
-              <Image src={a.drawingUrl} alt="Customer drawing" fill sizes="(min-width: 640px) 200px, 33vw" className="object-cover" />
-            </a>
-          ))}
-        </div>
+        <LightboxThumbs className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5"
+          images={d.annotations.map((a, i) => ({ url: a.drawingUrl, alt: `Customer drawing ${i + 1}`, caption: 'Customer drawing' }))} />
       )}
     </div>
   )

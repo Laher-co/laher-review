@@ -9,6 +9,7 @@ import {
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
 import { Badge, Spinner } from '@/components/brand'
+import Lightbox from '@/components/Lightbox'
 import { RING_SIZE_STATUS_LABEL } from '@/lib/feedback'
 
 const btn = 'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm transition-colors disabled:opacity-50'
@@ -152,6 +153,7 @@ function OptionCard({ jobId, versionNumber, option, canRemove, showLabel }: {
   jobId: string; versionNumber: number; option: FullOption; canRemove: boolean; showLabel: boolean
 }) {
   const { pending, error, run } = useAction()
+  const [viewing, setViewing] = useState<number | null>(null)
   return (
     <div className="rounded-xl border border-sand bg-white p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -168,9 +170,11 @@ function OptionCard({ jobId, versionNumber, option, canRemove, showLabel }: {
         <ul className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
           {option.renders.map((r, i) => (
             <li key={r.id} className="group relative aspect-square overflow-hidden rounded-lg border border-sand bg-linen">
-              <Image src={r.blobUrl} alt="" fill sizes="(min-width: 640px) 220px, 45vw" className="object-cover" />
-              {i === 0 && <span className="absolute left-1.5 top-1.5 rounded bg-cocoa/85 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-ivory">Cover</span>}
-              <div className="absolute inset-x-0 bottom-0 flex justify-between bg-gradient-to-t from-black/60 to-transparent p-1.5">
+              <button type="button" onClick={() => setViewing(i)} aria-label="View full screen" className="absolute inset-0 cursor-zoom-in">
+                <Image src={r.blobUrl} alt="" fill sizes="(min-width: 640px) 220px, 45vw" className="object-cover" />
+              </button>
+              {i === 0 && <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded bg-cocoa/85 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-ivory">Cover</span>}
+              <div className="absolute inset-x-0 bottom-0 z-10 flex justify-between bg-gradient-to-t from-black/60 to-transparent p-1.5">
                 <span className="flex gap-1">
                   <IconButton label="Move earlier" disabled={i === 0 || pending} onClick={() => run(() => moveRender(r.id, -1))}>‹</IconButton>
                   <IconButton label="Move later" disabled={i === option.renders.length - 1 || pending} onClick={() => run(() => moveRender(r.id, 1))}>›</IconButton>
@@ -181,6 +185,10 @@ function OptionCard({ jobId, versionNumber, option, canRemove, showLabel }: {
             </li>
           ))}
         </ul>
+      )}
+      {viewing !== null && (
+        <Lightbox start={viewing} onClose={() => setViewing(null)}
+          images={option.renders.map((r, i) => ({ url: r.blobUrl, alt: `Render ${i + 1}`, caption: showLabel ? `Option ${option.label}` : undefined }))} />
       )}
       <UploadZone jobId={jobId} versionNumber={versionNumber} option={option} />
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
