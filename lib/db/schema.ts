@@ -4,7 +4,14 @@ import {
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
-export const staffRole        = pgEnum('staff_role', ['designer', 'va', 'admin'])
+// designer: jobs and uploads · va: message queue · escalations: Rach · owner: Ryan
+// ('admin' is legacy and unused; Postgres can't drop enum values)
+export const staffRole        = pgEnum('staff_role', ['designer', 'va', 'admin', 'escalations', 'owner'])
+export const issueKind        = pgEnum('issue_kind', [
+  'trello_move', 'trello_comment', 'trello_attachment', 'trello_label', 'trello_fields',
+  'email_send', 'email_bounce', 'webhook',
+])
+export const issueStatus      = pgEnum('issue_status', ['open', 'resolved', 'ignored'])
 export const jobStatus        = pgEnum('job_status', ['draft', 'in_review', 'changes_requested', 'approved', 'approved_size_needed', 'closed'])
 export const ringSizeStatus   = pgEnum('ring_size_status', ['unconfirmed', 'submitted', 'confirmed'])
 export const versionStatus    = pgEnum('version_status', ['draft', 'published'])
@@ -22,6 +29,7 @@ export const staff = pgTable('staff', {
   id:        uuid('id').primaryKey().defaultRandom(),
   name:      text('name').notNull().unique(),
   role:      staffRole('role').notNull().default('designer'),
+  email:     text('email'),
   active:    boolean('active').notNull().default(true),
   createdAt: createdAt(),
 })
@@ -169,3 +177,31 @@ export const events = pgTable('events', {
   details:   jsonb('details').notNull().default({}),
   createdAt: createdAt(),
 }, t => [index('events_job').on(t.jobId, t.createdAt)])
+
+// ── Issues: anything that failed and needs a person ──────────────────────────
+
+// What to run again when staff press Retry (see lib/issues.ts for the types)
+export type IssueOperation = { type: string; args: Record<string, unknown> }
+
+export const issues = pgTable('issues', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  jobId:       uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+  kind:        issueKind('kind').notNull(),
+  summary:     text('summary').notNull(),            // e.g. "Move card to Heather | Print Ready"
+  operation:   jsonb('operation').$type<IssueOperation | null>(),  // null = can't be retried automatically
+  lastError:   text('last_error'),
+  status:      issueStatus('status').notNull().default('open'),
+  attempts:    integer('attempts').notNull().default(1),
+  alertedAt:   timestamp('alerted_at', { withTimezone: true }),
+  createdAt:   createdAt(),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt:  timestamp('resolved_at', { withTimezone: true }),
+  resolvedBy:  uuid('resolved_by').references(() => staff.id),
+}, t => [index('issues_open').on(t.status, t.createdAt)])
+
+// Small key/value store, e.g. when the daily digest last went out
+export const kv = pgTable('kv', {
+  key:       text('key').primaryKey(),
+  value:     jsonb('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})

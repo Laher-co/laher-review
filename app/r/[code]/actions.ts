@@ -10,7 +10,7 @@ import { openWaiting } from '@/lib/waiting'
 import { siteOrigin } from '@/lib/jobs'
 import { versionTitle } from '@/lib/format'
 import { areaLabel, CHANGE_AREAS, decisionHeading } from '@/lib/feedback'
-import { addComment, attachUrl, getCard, moveCardToStage, writeRingSizeFields, type MoveResult } from '@/lib/trello'
+import { moveOutcome, tracked } from '@/lib/issues'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -45,15 +45,13 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
     .set({ ringSize: size, ringSizeStatus: 'submitted', ringSizeSubmittedAt: new Date(), updatedAt: new Date() })
     .where(eq(jobs.id, job.id)).returning()
 
-  try {
-    const card = await getCard(job.trelloCardId)
-    if (card) {
-      await writeRingSizeFields(card, size, 'Customer submitted')
-      await addComment(card.id, `Customer submitted their finger size: ${size}\nPlease confirm it in the studio: ${studioLink(job.id)}`)
-    }
-  } catch (err) {
-    console.error('[submitRingSize] Trello:', err)
-  }
+  const cardId = job.trelloCardId
+  await tracked('trello_fields', job.id, `Set the Finger Size fields to ${size} (Customer submitted)`,
+    { type: 'trello.ringFields', args: { cardId, size, status: 'Customer submitted' } })
+  await tracked('trello_comment', job.id, 'Post the customer’s ring size comment', {
+    type: 'trello.comment',
+    args: { cardId, text: `Customer submitted their finger size: ${size}\nPlease confirm it in the studio: ${studioLink(job.id)}` },
+  })
 
   await openWaiting(job.id, 'ring_size')
   await logEvent(job.id, null, 'ring_size_submitted', { size })
@@ -174,31 +172,32 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   // Trello: bold header first, then the changes, then the drawings. The card
   // moves to the same designer's Alterations / Print Ready list — except an
   // approval without a ring size, which waits for staff to confirm one.
-  let trello: MoveResult | { moved: false; reason: string; currentList: string }
-  try {
-    // Blocks separated by one blank line: header, changes, comments, size, drawings
-    const blocks = [`**${heading}**`]
-    const notes = changes.filter(c => c.note).map(c => `• **${areaLabel(c.area)}:** ${c.note}`)
-    if (notes.length) blocks.push(notes.join('\n'))
-    if (comments) blocks.push(`Comments: ${comments}`)
-    if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (awaiting confirmation)`)
-    if (sizeOutstanding) blocks.push('Customer isn’t sure of their ring size. The card stays here until staff confirm a size in the studio.')
-    if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
-    blocks.push(`Studio: ${studioLink(job.id)}`)
-    await addComment(job.trelloCardId, blocks.join('\n\n'))
-    for (const [i, a] of annotations.entries()) {
-      await attachUrl(job.trelloCardId, a.drawingUrl, `Drawing ${i + 1} – ${heading.replace('CHANGES REQUESTED: ', '')}`)
-    }
-    if (submittedSize) {
-      const card = await getCard(job.trelloCardId)
-      if (card) await writeRingSizeFields(card, submittedSize, 'Customer submitted')
-    }
-    trello = sizeOutstanding
-      ? { moved: false, reason: 'Approved without a ring size: waiting for staff to confirm one', currentList: '' }
-      : await moveCardToStage(job.trelloCardId, approved ? 'Print Ready' : 'Alterations')
-  } catch (err) {
-    trello = { moved: false, reason: err instanceof Error ? err.message : String(err), currentList: '' }
+  // Blocks separated by one blank line: header, changes, comments, size, drawings
+  const blocks = [`**${heading}**`]
+  const notes = changes.filter(c => c.note).map(c => `• **${areaLabel(c.area)}:** ${c.note}`)
+  if (notes.length) blocks.push(notes.join('\n'))
+  if (comments) blocks.push(`Comments: ${comments}`)
+  if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (awaiting confirmation)`)
+  if (sizeOutstanding) blocks.push('Customer isn’t sure of their ring size. The card stays here until staff confirm a size in the studio.')
+  if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
+  blocks.push(`Studio: ${studioLink(job.id)}`)
+  const cardId = job.trelloCardId
+  await tracked('trello_comment', job.id, `Post “${heading}” on the Trello card`,
+    { type: 'trello.comment', args: { cardId, text: blocks.join('\n\n') } })
+  for (const [i, a] of annotations.entries()) {
+    const name = `Drawing ${i + 1} – ${heading.replace('CHANGES REQUESTED: ', '')}`
+    await tracked('trello_attachment', job.id, `Attach ${name} to the Trello card`,
+      { type: 'trello.attach', args: { cardId, url: a.drawingUrl, name } })
   }
+  if (submittedSize) {
+    await tracked('trello_fields', job.id, `Set the Finger Size fields to ${submittedSize} (Customer submitted)`,
+      { type: 'trello.ringFields', args: { cardId, size: submittedSize, status: 'Customer submitted' } })
+  }
+  const trello = sizeOutstanding
+    ? { moved: false as const, reason: 'Approved without a ring size: waiting for staff to confirm one', currentList: '' }
+    : moveOutcome(await tracked('trello_move', job.id,
+        `Move the card to ${approved ? 'Print Ready' : 'Alterations'} (${heading})`,
+        { type: 'trello.move', args: { cardId, stage: approved ? 'Print Ready' : 'Alterations' } }))
 
   await openWaiting(job.id, 'decision')
   await logEvent(job.id, null, approved ? 'design_approved' : 'changes_requested', {

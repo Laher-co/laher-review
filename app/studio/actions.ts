@@ -12,9 +12,9 @@ import { emitWebhook, logEvent } from '@/lib/events'
 import { getOptionContext, loadVersions, newPublicCode, reviewUrl } from '@/lib/jobs'
 import { optionLabel, versionTitle } from '@/lib/format'
 import {
-  addComment, cardFunnel, cardHasLabel, ensureLabel, getCard, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP,
-  moveCardToStage, readRingSizeFields, removeLabel, writeRingSizeFields, type MoveResult,
+  cardFunnel, cardHasLabel, getCard, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP, readRingSizeFields, type MoveResult,
 } from '@/lib/trello'
+import { moveOutcome, retryIssue, setIssueStatus, tracked } from '@/lib/issues'
 import { jobPayload } from '@/lib/payload'
 import { extractEmail, descriptionSection, parseRingSize } from '@/lib/trello-parse'
 
@@ -133,11 +133,10 @@ export async function createJob(_: unknown, form: FormData): Promise<{ error?: s
   await db.insert(options).values({ versionId: v.id, label: 'A', sort: 0 })
 
   // Mirror the ring size to the card's custom fields so Trello shows it too
-  const card = await getCard(preview.cardId)
-  if (card) {
-    await writeRingSizeFields(card, preview.ringSize, preview.ringSizeStatus === 'confirmed' ? 'Confirmed' : 'Unconfirmed')
-      .catch(err => console.error('[createJob] ring size fields:', err))
-  }
+  await tracked('trello_fields', job.id, 'Set the Finger Size fields on the Trello card', {
+    type: 'trello.ringFields',
+    args: { cardId: preview.cardId, size: preview.ringSize, status: preview.ringSizeStatus === 'confirmed' ? 'Confirmed' : 'Unconfirmed' },
+  })
 
   await logEvent(job.id, session.staffId, 'job_created', { trelloCardId: preview.cardId })
   redirect(`/studio/jobs/${job.id}`)
@@ -304,18 +303,13 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
   await db.update(jobs).set({ status: 'in_review', updatedAt: new Date() }).where(eq(jobs.id, job.id))
 
   // Trello: label first, and only move if labelling worked — otherwise the
-  // old "card moved → email customer" Zap could fire for this card.
-  let trello: PublishResult['trello']
-  let doNotEmail = false
-  try {
-    const card = await getCard(job.trelloCardId)
-    if (!card) throw new Error('Trello card not found')
-    doNotEmail = cardHasLabel(card, LABEL_DO_NOT_EMAIL)
-    await ensureLabel(card, LABEL_REVIEW_APP)
-    trello = await moveCardToStage(card.id, 'Revision')
-  } catch (err) {
-    trello = { moved: false, reason: err instanceof Error ? err.message : String(err), currentList: '' }
-  }
+  // old "card moved → email customer" Zap could fire for this card. Both run
+  // as one tracked step, so a failure becomes an issue with a Retry button.
+  const card = await getCard(job.trelloCardId).catch(() => null)
+  const doNotEmail = card ? cardHasLabel(card, LABEL_DO_NOT_EMAIL) : false
+  const trello: PublishResult['trello'] = moveOutcome(await tracked('trello_move', job.id,
+    `Label the card “${LABEL_REVIEW_APP}” and move it to Revision (${versionTitle(v.number)} published)`,
+    { type: 'trello.labelAndMove', args: { cardId: job.trelloCardId, label: LABEL_REVIEW_APP, stage: 'Revision' } }))
 
   const url = reviewUrl(job)
   await logEvent(job.id, session.staffId, 'version_published', { number: v.number, trello })
@@ -362,21 +356,20 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
   await db.update(waiting).set({ answeredAt: new Date(), answeredBy: session.staffId })
     .where(and(eq(waiting.jobId, jobId), eq(waiting.reason, 'ring_size'), isNull(waiting.answeredAt)))
 
-  let trello: MoveResult | { moved: false; reason: string; currentList: string } | null = null
-  try {
-    const card = await getCard(job.trelloCardId)
-    if (card) {
-      await writeRingSizeFields(card, size, 'Confirmed')
-      await removeLabel(card, 'Finger Size TBC')
-      await addComment(card.id, releasesApproval
-        ? `**RING SIZE CONFIRMED: ${size}** (by ${session.name})\n\nThe approved design can now go ahead: moving to Print Ready.`
-        : `Finger size confirmed: ${size} (by ${session.name})`)
-      if (releasesApproval) trello = await moveCardToStage(card.id, 'Print Ready')
-    }
-  } catch (err) {
-    console.error('[confirmRingSize] Trello:', err)
-    if (releasesApproval) trello = { moved: false, reason: err instanceof Error ? err.message : String(err), currentList: '' }
-  }
+  const cardId = job.trelloCardId
+  await tracked('trello_fields', job.id, `Set the Finger Size fields to ${size} (Confirmed)`,
+    { type: 'trello.ringFields', args: { cardId, size, status: 'Confirmed' } })
+  await tracked('trello_label', job.id, 'Remove the “Finger Size TBC” label',
+    { type: 'trello.removeLabel', args: { cardId, name: 'Finger Size TBC' } })
+  await tracked('trello_comment', job.id, 'Post the ring size confirmation comment', {
+    type: 'trello.comment', args: { cardId, text: releasesApproval
+      ? `**RING SIZE CONFIRMED: ${size}** (by ${session.name})\n\nThe approved design can now go ahead: moving to Print Ready.`
+      : `Finger size confirmed: ${size} (by ${session.name})` },
+  })
+  const trello: MoveResult | ReturnType<typeof moveOutcome> | null = releasesApproval
+    ? moveOutcome(await tracked('trello_move', job.id, 'Move the approved card to Print Ready (size now confirmed)',
+        { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
+    : null
 
   const [designer] = job.designerId
     ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
@@ -384,4 +377,19 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
   await emitWebhook(job.id, 'ring_size_confirmed', { ...jobPayload(job, designer?.name ?? null), actor: { type: 'staff', name: session.name } })
   revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath(`/r/${job.publicCode}`)
+}
+
+// ── Issues ────────────────────────────────────────────────────────────────────
+
+export async function retryIssueAction(issueId: string) {
+  const session = await requireStaff()
+  const res = await retryIssue(issueId, session.staffId)
+  revalidatePath('/studio/issues')
+  return res
+}
+
+export async function setIssueStatusAction(issueId: string, status: 'resolved' | 'ignored' | 'open') {
+  const session = await requireStaff()
+  await setIssueStatus(issueId, status, session.staffId)
+  revalidatePath('/studio/issues')
 }
