@@ -24,6 +24,12 @@ export async function sendEmail(m: EmailMessage): Promise<string> {
   const to = [...new Set(Array.isArray(m.to) ? m.to : [m.to])].filter(Boolean)
   if (to.length === 0) throw new Error('No recipients for this email.')
   const key = process.env.RESEND_API_KEY
+  // Local testing: EMAIL_DRY_RUN=1 logs instead of sending (like TRELLO_DRY_RUN)
+  if (process.env.EMAIL_DRY_RUN === '1') {
+    console.log(`[email:dry-run] to=${to.join(',')} type=${m.type} subject="${m.subject}"`)
+    await db.insert(emails).values(to.map(addr => ({ jobId: m.jobId ?? null, to: addr, type: m.type, status: 'sent' as const, providerId: 'dry-run' })))
+    return 'dry-run'
+  }
   try {
     if (!key) throw new Error('RESEND_API_KEY is not set.')
     const res = await fetch('https://api.resend.com/emails', {

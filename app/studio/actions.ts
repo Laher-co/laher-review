@@ -5,11 +5,12 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { del } from '@vercel/blob'
-import { db, jobs, messages, options, renders, staff, versions, waiting } from '@/lib/db'
+import { db, escalations, jobs, messages, options, renders, staff, versions, waiting } from '@/lib/db'
 import { checkStaffPassword, requireStaff } from '@/lib/auth'
 import { SESSION_COOKIE, SESSION_DAYS, signSession } from '@/lib/session'
 import { emitWebhook, logEvent } from '@/lib/events'
-import { getOptionContext, loadVersions, newPublicCode, reviewUrl } from '@/lib/jobs'
+import { getOptionContext, loadVersions, newPublicCode, reviewUrl, siteOrigin } from '@/lib/jobs'
+import { escapeHtml, staffEmailHtml, staffEmails } from '@/lib/email'
 import { optionLabel, versionTitle } from '@/lib/format'
 import {
   cardFunnel, cardHasLabel, getCard, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP, readRingSizeFields, type MoveResult,
@@ -18,7 +19,7 @@ import { moveOutcome, retryIssue, setIssueStatus, tracked } from '@/lib/issues'
 import { jobPayload } from '@/lib/payload'
 import { cardDetails, createJobFromDetails, type CardPreview } from '@/lib/job-create'
 import { backfillDesigner, type LinkResult } from '@/lib/studio-links'
-import { answerWaiting } from '@/lib/waiting'
+import { answerWaiting, markHandled } from '@/lib/waiting'
 import { extractEmail, descriptionSection, parseRingSize } from '@/lib/trello-parse'
 
 // ── Sign in / out ─────────────────────────────────────────────────────────────
@@ -236,6 +237,8 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
     .returning({ id: versions.id })
   if (claimed.length === 0) return { ok: false, error: 'This version has already been published.' }
   await db.update(jobs).set({ status: 'in_review', updatedAt: new Date() }).where(eq(jobs.id, job.id))
+  // A new version answers what the customer was waiting on (e.g. a change request)
+  await answerWaiting(job.id, session.staffId)
 
   // Trello: label first, and only move if labelling worked — otherwise the
   // old "card moved → email customer" Zap could fire for this card. Both run
@@ -287,9 +290,8 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
     ...(releasesApproval ? { status: 'approved' as const } : {}),
   }).where(eq(jobs.id, jobId)).returning()
 
-  // Confirming answers a waiting ring size submission
-  await db.update(waiting).set({ answeredAt: new Date(), answeredBy: session.staffId })
-    .where(and(eq(waiting.jobId, jobId), eq(waiting.reason, 'ring_size'), isNull(waiting.answeredAt)))
+  // Confirming the size answers the job (unless a message is still unanswered)
+  await answerWaiting(jobId, session.staffId)
 
   const cardId = job.trelloCardId
   await tracked('trello_fields', job.id, `Set the Finger Size fields to ${size} (Confirmed)`,
@@ -406,4 +408,66 @@ export async function runBackfill(staffId: string): Promise<BackfillReport> {
   const [d] = await db.select().from(staff).where(eq(staff.id, staffId))
   if (!d?.onStudio) throw new Error('Switch the designer on first.')
   return backfillDesigner(d.name)
+}
+
+// ── Queue ─────────────────────────────────────────────────────────────────────
+
+/** "Mark handled": nothing to reply to (e.g. an approval), so stop the timer. */
+export async function markHandledAction(jobId: string) {
+  const session = await requireStaff()
+  if (await markHandled(jobId, session.staffId)) await logEvent(jobId, session.staffId, 'marked_handled')
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath('/studio')
+}
+
+// ── Escalations ───────────────────────────────────────────────────────────────
+
+/** Flags the job for Rach and emails her. */
+export async function escalateJob(jobId: string, rawNote: string) {
+  const session = await requireStaff()
+  const note = rawNote.trim().slice(0, 2000)
+  if (!note) throw new Error('Add a short note for Rach.')
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
+  if (!job) throw new Error('Job not found.')
+  const [open] = await db.select({ id: escalations.id }).from(escalations)
+    .where(and(eq(escalations.jobId, jobId), isNull(escalations.resolvedAt)))
+  if (open) throw new Error('This job is already escalated.')
+
+  await db.insert(escalations).values({ jobId, raisedBy: session.staffId, note })
+  const link = `${siteOrigin()}/studio/jobs/${jobId}`
+  await tracked('email_send', jobId, `Email Rach about the escalation (${job.customerName})`, {
+    type: 'email.send',
+    args: {
+      to: await staffEmails(['escalations']), type: 'escalation', jobId, replyTo: 'hello@leiedesign.com',
+      subject: `Escalated to you: ${job.customerName} (from ${session.name})`,
+      text: `${session.name} escalated ${job.customerName}:\n\n${note}\n\nOpen the job: ${link}`,
+      html: staffEmailHtml(`Escalated: ${escapeHtml(job.customerName)}`,
+        `<p>${escapeHtml(session.name)} escalated this job to you:</p>
+         <p style="white-space:pre-line;background:#F1EAE0;border-radius:8px;padding:12px 14px">${escapeHtml(note)}</p>`,
+        { href: link, label: 'Open the job' }),
+    },
+  })
+  await tracked('trello_comment', jobId, 'Post the escalation on the Trello card',
+    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: `**ESCALATED TO RACH** (by ${session.name})\n\n${note}` } })
+  await logEvent(jobId, session.staffId, 'escalated', { note })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath('/studio')
+}
+
+export async function resolveEscalation(escalationId: string, rawNote: string) {
+  const session = await requireStaff()
+  const note = rawNote.trim().slice(0, 2000)
+  const [e] = await db.update(escalations)
+    .set({ resolvedAt: new Date(), resolvedBy: session.staffId, resolutionNote: note || null })
+    .where(and(eq(escalations.id, escalationId), isNull(escalations.resolvedAt))).returning()
+  if (!e) return
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, e.jobId))
+  if (job) {
+    await tracked('trello_comment', job.id, 'Post the escalation resolution on the Trello card', {
+      type: 'trello.comment', args: { cardId: job.trelloCardId, text: `**ESCALATION RESOLVED** (by ${session.name})${note ? `\n\n${note}` : ''}` },
+    })
+  }
+  await logEvent(e.jobId, session.staffId, 'escalation_resolved', { note })
+  revalidatePath(`/studio/jobs/${e.jobId}`)
+  revalidatePath('/studio')
 }

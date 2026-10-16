@@ -1,12 +1,14 @@
 import { notFound } from 'next/navigation'
-import { and, asc, eq, inArray } from 'drizzle-orm'
-import { db, decisions, events, messages, staff } from '@/lib/db'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import { db, decisions, escalations, events, messages, staff, waiting } from '@/lib/db'
 import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
 import { Badge } from '@/components/brand'
-import { CopyLink, DraftVersion, NewVersionButton, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { CopyLink, DraftVersion, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
+import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import LightboxThumbs from '@/components/LightboxThumbs'
 
 export const metadata = { title: 'Job — LAHER Studio' }
@@ -16,7 +18,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
   if (!row) notFound()
   const { job, designerName } = row
 
-  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages] = await Promise.all([
+  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages, [openWait], [openEscalation]] = await Promise.all([
     loadVersions(job.id),
     db.select({ id: staff.id, name: staff.name }).from(staff),
     // Read live so a "Do not email" label added in Trello shows straight away
@@ -25,7 +27,11 @@ export default async function JobPage({ params }: { params: { id: string } }) {
       .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested']))),
     db.select().from(decisions).where(eq(decisions.jobId, job.id)),
     db.select().from(messages).where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
+    db.select().from(waiting).where(and(eq(waiting.jobId, job.id), isNull(waiting.answeredAt))),
+    db.select().from(escalations).where(and(eq(escalations.jobId, job.id), isNull(escalations.resolvedAt))),
   ])
+  const now = new Date()
+  const WAITING_FOR = { message: 'a reply to a message', decision: 'a response to their feedback', ring_size: 'their ring size to be confirmed' } as const
   const thread = (versionId: string | null): StaffThreadMessage[] => jobMessages
     .filter(m => m.versionId === versionId)
     .map(m => ({
@@ -94,6 +100,15 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           </div>
         </dl>
       </section>
+
+      <QueuePanel jobId={job.id}
+        waitingFor={openWait ? WAITING_FOR[openWait.reason] : null}
+        waitedLabel={openWait ? formatMinutes(workingMinutesBetween(openWait.waitingSince, now)) : null}
+        overdue={!!openWait && addWorkingMinutes(openWait.waitingSince, OVERDUE_WORKING_MINUTES) <= now}
+        escalation={openEscalation ? {
+          id: openEscalation.id, note: openEscalation.note,
+          by: nameOf(openEscalation.raisedBy), when: formatSydney(openEscalation.raisedAt),
+        } : null} />
 
       {/* General conversation (not tied to a version) */}
       <StaffThread jobId={job.id} versionId={null} title="General messages" customerName={job.customerName} messages={thread(null)} />

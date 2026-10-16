@@ -4,7 +4,8 @@ import Image from 'next/image'
 import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
-  addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, moveRender, publishVersion, sendStaffReply,
+  addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
+  publishVersion, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -383,6 +384,68 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
         <Lightbox start={viewing.i} onClose={() => setViewing(null)}
           images={viewing.urls.map((u, i) => ({ url: u, alt: `Drawing ${i + 1}`, caption: 'Customer drawing' }))} />
       )}
+    </div>
+  )
+}
+
+// ── Queue and escalation ──────────────────────────────────────────────────────
+
+export function QueuePanel({ jobId, waitingFor, waitedLabel, overdue, escalation }: {
+  jobId: string
+  waitingFor: string | null          // e.g. "a reply to a message"
+  waitedLabel: string | null         // e.g. "2h 15m"
+  overdue: boolean
+  escalation: { id: string; note: string; by: string; when: string } | null
+}) {
+  const { pending, error, run } = useAction()
+  const [escalating, setEscalating] = useState(false)
+  const [note, setNote] = useState('')
+  const [resolution, setResolution] = useState('')
+
+  return (
+    <div className="space-y-3">
+      {waitingFor && (
+        <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 ${overdue ? 'border-red-300 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+          {overdue && <Badge tone="danger">Overdue</Badge>}
+          <p className="text-sm text-ink">
+            Customer waiting for {waitingFor} · <strong>{waitedLabel}</strong> <span className="text-stone">(working hours)</span>
+          </p>
+          <button className={`${btnGhost} ml-auto py-2`} disabled={pending} onClick={() => run(() => markHandledAction(jobId))}>
+            Mark handled
+          </button>
+        </div>
+      )}
+
+      {escalation ? (
+        <div className="rounded-xl border border-red-200 bg-white p-4">
+          <p className="text-sm"><Badge tone="danger">Escalated to Rach</Badge> <span className="ml-2 text-stone">by {escalation.by}, {escalation.when}</span></p>
+          <p className="mt-2 whitespace-pre-line text-sm text-ink">{escalation.note}</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input value={resolution} onChange={e => setResolution(e.target.value)} placeholder="How it was resolved (optional)"
+              className="flex-1 rounded-lg border border-sand bg-white px-3 py-2 text-base focus:border-cocoa focus:outline-none sm:text-sm" />
+            <button className={btnPrimary} disabled={pending} onClick={() => run(() => resolveEscalation(escalation.id, resolution))}>
+              {pending && <Spinner />} Mark resolved
+            </button>
+          </div>
+        </div>
+      ) : escalating ? (
+        <div className="rounded-xl border border-sand bg-white p-4">
+          <p className="text-sm font-medium text-ink">Escalate to Rach</p>
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} maxLength={2000}
+            placeholder="What does Rach need to know or decide?"
+            className="mt-2 w-full rounded-lg border border-sand bg-white px-3 py-2.5 text-base focus:border-cocoa focus:outline-none sm:text-sm" />
+          <div className="mt-2 flex gap-2">
+            <button className={btnPrimary} disabled={pending || !note.trim()}
+              onClick={() => run(async () => { await escalateJob(jobId, note); setEscalating(false); setNote('') })}>
+              {pending && <Spinner />} Escalate and email Rach
+            </button>
+            <button className="text-sm text-stone underline" onClick={() => setEscalating(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button className="text-sm text-cocoa underline underline-offset-4" onClick={() => setEscalating(true)}>Escalate to Rach…</button>
+      )}
+      {error && <p className="text-sm text-red-700">{error}</p>}
     </div>
   )
 }

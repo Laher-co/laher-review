@@ -7,6 +7,7 @@ import { db, decisions, jobs, messages, options, renders, staff, versions, type 
 import { emitWebhook, logEvent } from '@/lib/events'
 import { jobPayload } from '@/lib/payload'
 import { openWaiting } from '@/lib/waiting'
+import { alertCustomerAction } from '@/lib/alerts'
 import { siteOrigin } from '@/lib/jobs'
 import { versionTitle } from '@/lib/format'
 import { areaLabel, CHANGE_AREAS, decisionHeading } from '@/lib/feedback'
@@ -54,6 +55,7 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
   })
 
   await openWaiting(job.id, 'ring_size')
+  await alertCustomerAction(job.id, 'Ring size submitted', `The customer says their ring size is ${size}. Please check it and confirm it in the studio.`)
   await logEvent(job.id, null, 'ring_size_submitted', { size })
   await emitWebhook(job.id, 'ring_size_submitted', { ...jobPayload(updated, designerName), actor: { type: 'customer' } })
   revalidatePath(`/r/${code}`)
@@ -189,6 +191,13 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
         { type: 'trello.move', args: { cardId, stage: approved ? 'Print Ready' : 'Alterations' } }))
 
   await openWaiting(job.id, 'decision')
+  await alertCustomerAction(job.id, heading, [
+    ...changes.filter(c => c.note).map(c => `${areaLabel(c.area)}: ${c.note}`),
+    comments ? `Comments: ${comments}` : '',
+    submittedSize ? `Ring size given: ${submittedSize} (please confirm)` : '',
+    sizeOutstanding ? 'Not sure of their ring size: please help them confirm it. The card stays put until you do.' : '',
+    annotations.length ? `${annotations.length} drawing${annotations.length > 1 ? 's' : ''} attached` : '',
+  ].filter(Boolean).join('\n'))
   await logEvent(job.id, null, approved ? 'design_approved' : 'changes_requested', {
     version: version.number, option: option.label, decisionId: inserted[0].id, sizeOutstanding, trello,
   })
@@ -300,6 +309,8 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
   }
 
   await openWaiting(job.id, 'message')
+  await alertCustomerAction(job.id, `New message (${where})`,
+    [body, annotations.length ? `[${annotations.length} drawing${annotations.length > 1 ? 's' : ''} attached]` : ''].filter(Boolean).join('\n'))
   await logEvent(job.id, null, 'customer_message', { messageId: inserted[0].id, version: version?.number ?? null })
   await emitWebhook(job.id, 'message_created', {
     ...jobPayload(job, designerName),

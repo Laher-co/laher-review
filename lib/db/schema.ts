@@ -209,3 +209,16 @@ export const kv = pgTable('kv', {
   value:     jsonb('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+// ── Escalations to Rach ───────────────────────────────────────────────────────
+
+export const escalations = pgTable('escalations', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  jobId:          uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+  raisedBy:       uuid('raised_by').notNull().references(() => staff.id),
+  note:           text('note').notNull(),
+  raisedAt:       timestamp('raised_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt:     timestamp('resolved_at', { withTimezone: true }),
+  resolvedBy:     uuid('resolved_by').references(() => staff.id),
+  resolutionNote: text('resolution_note'),
+}, t => [index('escalations_open').on(t.resolvedAt, t.raisedAt)])

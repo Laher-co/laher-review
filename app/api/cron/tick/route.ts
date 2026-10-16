@@ -3,19 +3,21 @@ import { desc, eq } from 'drizzle-orm'
 import { db, issues, jobs, kv } from '@/lib/db'
 import { escapeHtml, sendEmail, staffEmailHtml, staffEmails } from '@/lib/email'
 import { recordIssue } from '@/lib/issues'
+import { sendOverdueAlerts } from '@/lib/alerts'
 import { siteOrigin } from '@/lib/jobs'
 import { formatSydney } from '@/lib/format'
 import { sydneyDate, sydneyHour } from '@/lib/sydney'
 
 export const dynamic = 'force-dynamic'
 
-// Vercel Cron calls this every hour (cron schedules are UTC, so Sydney times
-// are checked here; that keeps 9am right through daylight saving changes).
+// Vercel Cron calls this every 15 minutes (cron schedules are UTC, so Sydney
+// times are checked here; that keeps 9am right through daylight saving changes).
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
   const results: Record<string, unknown> = {}
+  results.overdueAlerts = await sendOverdueAlerts()
   results.issuesDigest = await issuesDigest().catch(digestFailed)
   return NextResponse.json({ ok: true, ...results })
 }
