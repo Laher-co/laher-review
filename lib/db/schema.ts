@@ -54,6 +54,9 @@ export const jobs = pgTable('jobs', {
   ringSizeSubmittedAt: timestamp('ring_size_submitted_at', { withTimezone: true }),
   ringSizeConfirmedBy: uuid('ring_size_confirmed_by').references(() => staff.id),
   ringSizeConfirmedAt: timestamp('ring_size_confirmed_at', { withTimezone: true }),
+  // Automated reminder emails run only the first time a customer goes quiet
+  autoSequenceUsed:    boolean('auto_sequence_used').notNull().default(false),
+  sizeSequenceUsed:    boolean('size_sequence_used').notNull().default(false),
   createdBy:           uuid('created_by').references(() => staff.id),
   createdAt:           createdAt(),
   updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -222,3 +225,24 @@ export const escalations = pgTable('escalations', {
   resolvedBy:     uuid('resolved_by').references(() => staff.id),
   resolutionNote: text('resolution_note'),
 }, t => [index('escalations_open').on(t.resolvedAt, t.raisedAt)])
+
+// ── Follow-ups (customer gone quiet) ──────────────────────────────────────────
+
+export const followupKind   = pgEnum('followup_kind', ['design', 'size'])
+export const followupStatus = pgEnum('followup_status', ['active', 'requires_call', 'follow_up', 'stopped', 'done'])
+
+export const followups = pgTable('followups', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  jobId:          uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+  kind:           followupKind('kind').notNull(),
+  startedAt:      timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  automated:      boolean('automated').notNull().default(false),   // this spell sends reminder emails
+  remindersSent:  integer('reminders_sent').notNull().default(0),
+  lastReminderAt: timestamp('last_reminder_at', { withTimezone: true }),
+  status:         followupStatus('status').notNull().default('active'),
+  flaggedAt:      timestamp('flagged_at', { withTimezone: true }),
+  stoppedReason:  text('stopped_reason'),
+  closedAt:       timestamp('closed_at', { withTimezone: true }),
+  closedBy:       uuid('closed_by').references(() => staff.id),
+  closeNote:      text('close_note'),
+}, t => [index('followups_open').on(t.status, t.startedAt)])

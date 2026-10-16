@@ -1,14 +1,15 @@
 import { notFound } from 'next/navigation'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
-import { db, decisions, escalations, events, messages, staff, waiting } from '@/lib/db'
+import { db, decisions, escalations, events, followups, messages, staff, waiting } from '@/lib/db'
 import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
 import { Badge } from '@/components/brand'
-import { CopyLink, DraftVersion, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { CopyLink, DraftVersion, FollowupPanel, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
+import { followupLabel } from '@/lib/followup-schedule'
 import LightboxThumbs from '@/components/LightboxThumbs'
 
 export const metadata = { title: 'Job — LAHER Studio' }
@@ -18,7 +19,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
   if (!row) notFound()
   const { job, designerName } = row
 
-  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages, [openWait], [openEscalation]] = await Promise.all([
+  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages, [openWait], [openEscalation], openFollowups] = await Promise.all([
     loadVersions(job.id),
     db.select({ id: staff.id, name: staff.name }).from(staff),
     // Read live so a "Do not email" label added in Trello shows straight away
@@ -29,6 +30,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     db.select().from(messages).where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
     db.select().from(waiting).where(and(eq(waiting.jobId, job.id), isNull(waiting.answeredAt))),
     db.select().from(escalations).where(and(eq(escalations.jobId, job.id), isNull(escalations.resolvedAt))),
+    db.select().from(followups).where(and(eq(followups.jobId, job.id), inArray(followups.status, ['active', 'requires_call', 'follow_up']))),
   ])
   const now = new Date()
   const WAITING_FOR = { message: 'a reply to a message', decision: 'a response to their feedback', ring_size: 'their ring size to be confirmed' } as const
@@ -45,6 +47,10 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     return [d.number ?? d.version, d.trello] as const
   }))
   const publishOutcome  = outcome(['version_published'])
+  const publishEmail = new Map(jobEvents.filter(e => e.type === 'version_published').map(e => {
+    const d = e.details as { number?: number; customerEmail?: 'sent' | 'skipped' | 'failed' }
+    return [d.number, d.customerEmail] as const
+  }))
   // Each response's Trello outcome, keyed by decision id
   const decisionOutcome = new Map(jobEvents
     .filter(e => e.type === 'design_approved' || e.type === 'changes_requested')
@@ -110,6 +116,15 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           by: nameOf(openEscalation.raisedBy), when: formatSydney(openEscalation.raisedAt),
         } : null} />
 
+      {openFollowups.length > 0 && (
+        <FollowupPanel items={openFollowups.map(f => ({
+          id: f.id, label: followupLabel(f), flagged: f.status !== 'active',
+          detail: f.status === 'active'
+            ? f.remindersSent ? `Last reminder ${formatSydney(f.lastReminderAt!)}` : 'Clock started ' + formatSydney(f.startedAt)
+            : `${f.stoppedReason ?? ''} · flagged ${f.flaggedAt ? formatSydney(f.flaggedAt) : ''}`,
+        }))} />
+      )}
+
       {/* General conversation (not tied to a version) */}
       <StaffThread jobId={job.id} versionId={null} title="General messages" customerName={job.customerName} messages={thread(null)} />
 
@@ -117,17 +132,6 @@ export default async function JobPage({ params }: { params: { id: string } }) {
       {draft
         ? <DraftVersion jobId={job.id} version={draft} title={versionTitle(draft.number)} doNotEmail={doNotEmail} />
         : <NewVersionButton jobId={job.id} label={`Start ${versionTitle(nextNumber)}`} />}
-
-      {/* Until customer emails switch on (Phase 4), staff send the link themselves */}
-      {published.length > 0 && !draft && !jobDecisions.some(d => d.versionId === published[0].id) && (
-        <section className="rounded-2xl border border-cocoa/20 bg-linen p-5">
-          <p className="text-sm text-ink">
-            <strong>{versionTitle(published[0].number)}</strong> is live. Customer emails aren’t switched on yet,
-            so please send the customer this link:
-          </p>
-          <div className="mt-3 rounded-lg border border-sand bg-white px-3 py-2.5 text-sm"><CopyLink url={reviewUrl(job)} /></div>
-        </section>
-      )}
 
       {/* Published history, newest first */}
       {published.map(v => {
@@ -142,6 +146,12 @@ export default async function JobPage({ params }: { params: { id: string } }) {
               Published {v.publishedAt ? formatSydney(v.publishedAt) : ''} by {nameOf(v.publishedBy)}
             </p>
           </div>
+          {publishEmail.get(v.number) && (
+            <p className={`mt-1 text-xs ${publishEmail.get(v.number) === 'failed' ? 'font-medium text-red-700' : 'text-stone'}`}>
+              {{ sent: 'Customer emailed that it’s ready.', skipped: 'Customer not emailed: card is marked “Do not email”.',
+                 failed: 'Customer email failed: see Issues, and send them the link by hand.' }[publishEmail.get(v.number)!]}
+            </p>
+          )}
           {t && (
             <p className={`mt-1 text-xs ${t.moved ? 'text-stone' : 'font-medium text-amber-800'}`}>
               {!t.moved

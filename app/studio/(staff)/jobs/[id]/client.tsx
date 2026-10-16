@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
-  publishVersion, resolveEscalation, sendStaffReply,
+  logFollowupCall, publishVersion, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -220,7 +220,7 @@ export function DraftVersion({ jobId, version, title, doNotEmail }: {
 
   function publish() {
     const optionsText = version.options.length > 1 ? ` with ${version.options.length} options` : ''
-    if (!confirm(`Publish ${title}${optionsText}? The customer will be able to see it straight away, and the Trello card moves to Revision.`)) return
+    if (!confirm(`Publish ${title}${optionsText}? The customer will be emailed${doNotEmail ? ' (not this one: “Do not email”)' : ''} and can see it straight away, and the Trello card moves to Revision.`)) return
     run(async () => {
       if (note !== (version.designerNote ?? '')) await saveVersionNote(version.id, note)
       const res = await publishVersion(version.id)
@@ -445,6 +445,42 @@ export function QueuePanel({ jobId, waitingFor, waitedLabel, overdue, escalation
       ) : (
         <button className="text-sm text-cocoa underline underline-offset-4" onClick={() => setEscalating(true)}>Escalate to Rach…</button>
       )}
+      {error && <p className="text-sm text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+// ── Follow-ups ────────────────────────────────────────────────────────────────
+
+export function FollowupPanel({ items }: { items: { id: string; label: string; flagged: boolean; detail: string }[] }) {
+  const { pending, error, run } = useAction()
+  const [noteFor, setNoteFor] = useState<string | null>(null)
+  const [note, setNote] = useState('')
+  return (
+    <div className="space-y-2">
+      {items.map(f => (
+        <div key={f.id} className={`rounded-xl border px-4 py-3 ${f.flagged ? 'border-red-300 bg-red-50' : 'border-sand bg-white/60'}`}>
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge tone={f.flagged ? 'danger' : 'neutral'}>{f.label}</Badge>
+            <span className="text-sm text-stone">{f.detail}</span>
+            {noteFor !== f.id && (
+              <button className="ml-auto text-sm text-cocoa underline" onClick={() => setNoteFor(f.id)}>
+                {f.flagged ? 'Log call' : 'Followed up by phone'}
+              </button>
+            )}
+          </div>
+          {noteFor === f.id && (
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input value={note} onChange={e => setNote(e.target.value)} placeholder="What happened? (optional)"
+                className="flex-1 rounded-lg border border-sand bg-white px-3 py-2 text-base focus:border-cocoa focus:outline-none sm:text-sm" />
+              <button className={btnPrimary} disabled={pending}
+                onClick={() => run(async () => { await logFollowupCall(f.id, note); setNoteFor(null); setNote('') })}>
+                {pending && <Spinner />} Save and clear
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
       {error && <p className="text-sm text-red-700">{error}</p>}
     </div>
   )

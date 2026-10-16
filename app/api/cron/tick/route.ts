@@ -4,6 +4,7 @@ import { db, issues, jobs, kv } from '@/lib/db'
 import { escapeHtml, sendEmail, staffEmailHtml, staffEmails } from '@/lib/email'
 import { recordIssue } from '@/lib/issues'
 import { sendOverdueAlerts } from '@/lib/alerts'
+import { processFollowups } from '@/lib/followups'
 import { siteOrigin } from '@/lib/jobs'
 import { formatSydney } from '@/lib/format'
 import { sydneyDate, sydneyHour } from '@/lib/sydney'
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
   }
   const results: Record<string, unknown> = {}
   results.overdueAlerts = await sendOverdueAlerts()
+  results.followups = await processFollowups()
   results.issuesDigest = await issuesDigest().catch(digestFailed)
   return NextResponse.json({ ok: true, ...results })
 }

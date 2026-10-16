@@ -60,7 +60,7 @@ export function RingSizeBar({ code, size, status }: { code: string; size: string
   }
 
   return (
-    <div className={`border-b border-sand ${status === 'unconfirmed' ? 'bg-[#F6E9D9]' : 'bg-linen'} text-cocoa-dark`}>
+    <div id="ring-size" className={`scroll-mt-4 border-b border-sand ${status === 'unconfirmed' ? 'bg-[#F6E9D9]' : 'bg-linen'} text-cocoa-dark`}>
       <div className="mx-auto max-w-3xl px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <p className="text-sm">

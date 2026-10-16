@@ -1,16 +1,17 @@
 import Link from 'next/link'
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
-import { db, escalations, issues, jobs, staff, versions, waiting } from '@/lib/db'
+import { asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { db, escalations, followups, issues, jobs, staff, versions, waiting } from '@/lib/db'
 import { requireStaff } from '@/lib/auth'
 import { Badge } from '@/components/brand'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { weeklyKpis } from '@/lib/kpi'
+import { followupLabel } from '@/lib/followup-schedule'
 
 export const metadata = { title: 'Studio — LAHER' }
 
-type View = 'queue' | 'mine' | 'escalations' | 'all'
+type View = 'queue' | 'followups' | 'mine' | 'escalations' | 'all'
 const DEFAULT_VIEW = { va: 'queue', owner: 'queue', escalations: 'escalations', designer: 'mine', admin: 'queue' } as const
 
 const STATUS: Record<string, { label: string; tone: 'neutral' | 'cocoa' | 'warn' | 'ok' }> = {
@@ -29,7 +30,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
   const view: View = searchParams.view ?? DEFAULT_VIEW[me?.role ?? 'va']
   const now = new Date()
 
-  const [queue, openEscalations, kpis, [{ openIssues }]] = await Promise.all([
+  const [queue, openEscalations, kpis, [{ openIssues }], openFollowups] = await Promise.all([
     db.select({ w: waiting, job: jobs, designer: staff.name })
       .from(waiting).innerJoin(jobs, eq(jobs.id, waiting.jobId)).leftJoin(staff, eq(staff.id, jobs.designerId))
       .where(isNull(waiting.answeredAt)).orderBy(asc(waiting.waitingSince)),
@@ -38,7 +39,12 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
       .where(isNull(escalations.resolvedAt)).orderBy(asc(escalations.raisedAt)),
     weeklyKpis(now),
     db.select({ openIssues: sql<number>`count(*)::int` }).from(issues).where(eq(issues.status, 'open')),
+    db.select({ f: followups, job: jobs, designer: staff.name })
+      .from(followups).innerJoin(jobs, eq(jobs.id, followups.jobId)).leftJoin(staff, eq(staff.id, jobs.designerId))
+      .where(inArray(followups.status, ['active', 'requires_call', 'follow_up'])).orderBy(asc(followups.startedAt)),
   ])
+  const flagged = openFollowups.filter(x => x.f.status !== 'active')
+  const followupByJob = new Map(openFollowups.map(x => [x.job.id, x.f]))
   const waitingJobIds = new Set(queue.map(q => q.job.id))
   const escalatedJobIds = new Set(openEscalations.map(e => e.job.id))
 
@@ -54,6 +60,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
 
   const tabs: { id: View; label: string; count?: number }[] = [
     { id: 'queue', label: 'Queue', count: queue.length },
+    { id: 'followups', label: 'Follow-ups', count: flagged.length },
     { id: 'mine', label: 'My jobs' },
     { id: 'escalations', label: 'Escalations', count: openEscalations.length },
     { id: 'all', label: 'All jobs' },
@@ -107,6 +114,25 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
         )
       )}
 
+      {view === 'followups' && (
+        openFollowups.length === 0 ? <Empty title="No follow-ups" body="Customers who go quiet after a new version (or an approval without a ring size) appear here." /> : (
+          <ul className="divide-y divide-sand overflow-hidden rounded-2xl border border-sand bg-white/70">
+            {[...flagged.filter(x => x.f.status === 'requires_call'), ...flagged.filter(x => x.f.status === 'follow_up'), ...openFollowups.filter(x => x.f.status === 'active')]
+              .map(({ f, job, designer }) => (
+                <li key={f.id}>
+                  <Link href={`/studio/jobs/${job.id}`} className="flex flex-col gap-1.5 px-4 py-4 hover:bg-linen/60 sm:flex-row sm:items-center sm:gap-5 sm:px-5">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-ink">{job.customerName}</p>
+                      <p className="text-sm text-stone">{designer ?? 'No designer'} · since {formatSydney(f.startedAt)}</p>
+                    </div>
+                    <Badge tone={f.status === 'active' ? 'neutral' : 'danger'}>{followupLabel(f)}</Badge>
+                  </Link>
+                </li>
+              ))}
+          </ul>
+        )
+      )}
+
       {view === 'escalations' && (
         openEscalations.length === 0 ? <Empty title="No open escalations" body="Jobs escalated to Rach appear here." /> : (
           <ul className="space-y-3">
@@ -146,6 +172,9 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                         <Badge tone={status.tone}>{status.label}</Badge>
                         {waitingJobIds.has(job.id) && <Badge tone="warn">Awaiting reply</Badge>}
                         {escalatedJobIds.has(job.id) && <Badge tone="danger">Escalated</Badge>}
+                        {followupByJob.get(job.id) && (
+                          <Badge tone={followupByJob.get(job.id)!.status === 'active' ? 'neutral' : 'danger'}>{followupLabel(followupByJob.get(job.id)!)}</Badge>
+                        )}
                         {job.ringSizeStatus !== 'confirmed' && <Badge tone="neutral">Size {job.ringSizeStatus}</Badge>}
                       </div>
                       <span className="text-xs text-stone sm:w-24 sm:text-right">{formatSydney(job.updatedAt)}</span>

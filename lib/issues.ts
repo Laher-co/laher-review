@@ -53,6 +53,11 @@ const OPERATIONS: Record<string, (a: Record<string, unknown>) => Promise<unknown
     if (!ok) throw new Error(`Zapier responded with HTTP ${res.status}`)
   },
   'email.send': async a => sendEmail(a as unknown as Parameters<typeof sendEmail>[0]),
+  /** A customer email: re-checks "Do not email" before sending. */
+  'customer.send': async a => {
+    const { deliverCustomerEmail } = await import('./customer-emails')
+    return deliverCustomerEmail(a as Parameters<typeof deliverCustomerEmail>[0])
+  },
   /** Re-check a card and add its Studio link if it qualifies. */
   'trello.studioLink': async a => {
     const { ensureStudioLink } = await import('./studio-links')

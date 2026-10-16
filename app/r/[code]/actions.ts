@@ -8,6 +8,9 @@ import { emitWebhook, logEvent } from '@/lib/events'
 import { jobPayload } from '@/lib/payload'
 import { openWaiting } from '@/lib/waiting'
 import { alertCustomerAction } from '@/lib/alerts'
+import { startSizeFollowup, stopFollowups } from '@/lib/followups'
+import { emailContext, sendCustomerEmail } from '@/lib/customer-emails'
+import { approvedSummary, changesSummary } from '@/lib/customer-email-templates'
 import { siteOrigin } from '@/lib/jobs'
 import { versionTitle } from '@/lib/format'
 import { areaLabel, CHANGE_AREAS, decisionHeading } from '@/lib/feedback'
@@ -54,6 +57,7 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
     args: { cardId, text: `Customer submitted their finger size: ${size}\nPlease confirm it in the studio: ${studioLink(job.id)}` },
   })
 
+  await stopFollowups(job.id, ['design', 'size'], 'Customer sent their ring size')
   await openWaiting(job.id, 'ring_size')
   await alertCustomerAction(job.id, 'Ring size submitted', `The customer says their ring size is ${size}. Please check it and confirm it in the studio.`)
   await logEvent(job.id, null, 'ring_size_submitted', { size })
@@ -190,6 +194,19 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
         `Move the card to ${approved ? 'Print Ready' : 'Alterations'} (${heading})`,
         { type: 'trello.move', args: { cardId, stage: approved ? 'Print Ready' : 'Alterations' } }))
 
+  await stopFollowups(job.id, ['design'], approved ? 'Customer approved' : 'Customer requested changes')
+  if (sizeOutstanding) await startSizeFollowup(job.id)
+
+  // Summary email: what they asked for and what happens next
+  const { common } = await emailContext(job.id)
+  const what = `${versionTitle(version.number)}${versionOptions.length > 1 ? `, Option ${option.label}` : ''}`
+  await sendCustomerEmail(job.id, approved ? 'approved_summary' : 'changes_summary', approved
+    ? approvedSummary({ ...common, what, comments: comments || null, sizeOutstanding })
+    : changesSummary({
+        ...common, what, comments: comments || null, drawings: annotations.length,
+        changes: changes.filter(c => c.note).map(c => `${areaLabel(c.area)}: ${c.note}`),
+      }))
+
   await openWaiting(job.id, 'decision')
   await alertCustomerAction(job.id, heading, [
     ...changes.filter(c => c.note).map(c => `${areaLabel(c.area)}: ${c.note}`),
@@ -308,6 +325,7 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
       { type: 'trello.attach', args: { cardId: job.trelloCardId, url: a.drawingUrl, name } })
   }
 
+  await stopFollowups(job.id, ['design'], 'Customer sent a message')
   await openWaiting(job.id, 'message')
   await alertCustomerAction(job.id, `New message (${where})`,
     [body, annotations.length ? `[${annotations.length} drawing${annotations.length > 1 ? 's' : ''} attached]` : ''].filter(Boolean).join('\n'))

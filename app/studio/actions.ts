@@ -20,6 +20,9 @@ import { jobPayload } from '@/lib/payload'
 import { cardDetails, createJobFromDetails, type CardPreview } from '@/lib/job-create'
 import { backfillDesigner, type LinkResult } from '@/lib/studio-links'
 import { answerWaiting, markHandled } from '@/lib/waiting'
+import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
+import { emailContext, sendCustomerEmail } from '@/lib/customer-emails'
+import { staffReplied, versionReady } from '@/lib/customer-email-templates'
 import { extractEmail, descriptionSection, parseRingSize } from '@/lib/trello-parse'
 
 // ── Sign in / out ─────────────────────────────────────────────────────────────
@@ -207,6 +210,7 @@ export type PublishResult = {
   reviewUrl?: string
   trello?: MoveResult | { moved: false; reason: string; currentList: string }
   doNotEmail?: boolean
+  customerEmail?: 'sent' | 'skipped' | 'failed'
 }
 
 /**
@@ -249,8 +253,17 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
     `Label the card “${LABEL_REVIEW_APP}” and move it to Revision (${versionTitle(v.number)} published)`,
     { type: 'trello.labelAndMove', args: { cardId: job.trelloCardId, label: LABEL_REVIEW_APP, stage: 'Revision' } }))
 
+  // Email the customer (skipped if the card says "Do not email") and start the follow-up clock
+  const { common } = await emailContext(job.id)
+  const sent = await sendCustomerEmail(job.id, 'version_ready', versionReady({
+    ...common, versionTitle: versionTitle(v.number), versionNumber: v.number,
+    optionCount: full.options.length, note: full.designerNote,
+  }))
+  const customerEmail: PublishResult['customerEmail'] = sent.ok ? sent.value : 'failed'
+  await startDesignFollowup(job.id)
+
   const url = reviewUrl(job)
-  await logEvent(job.id, session.staffId, 'version_published', { number: v.number, trello })
+  await logEvent(job.id, session.staffId, 'version_published', { number: v.number, trello, customerEmail })
   await emitWebhook(job.id, 'version_published', {
     job: {
       id: job.id, cardId: job.trelloCardId, cardUrl: job.trelloShortUrl,
@@ -268,7 +281,7 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
 
   revalidatePath(`/studio/jobs/${job.id}`)
   revalidatePath(`/r/${job.publicCode}`)
-  return { ok: true, reviewUrl: url, trello, doNotEmail }
+  return { ok: true, reviewUrl: url, trello, doNotEmail, customerEmail }
 }
 
 // ── Ring size ─────────────────────────────────────────────────────────────────
@@ -292,6 +305,7 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
 
   // Confirming the size answers the job (unless a message is still unanswered)
   await answerWaiting(jobId, session.staffId)
+  await stopFollowups(jobId, ['size'], 'Ring size confirmed')
 
   const cardId = job.trelloCardId
   await tracked('trello_fields', job.id, `Set the Finger Size fields to ${size} (Confirmed)`,
@@ -360,6 +374,9 @@ export async function sendStaffReply(jobId: string, versionId: string | null, ra
     type: 'trello.comment',
     args: { cardId: job.trelloCardId, text: `**STUDIO REPLY (${session.name}): ${where}**\n\n${body}` },
   })
+
+  const { common } = await emailContext(jobId)
+  await sendCustomerEmail(jobId, 'staff_replied', staffReplied({ ...common, staffName: session.name, body }))
 
   const [designer] = job.designerId ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
   await logEvent(jobId, session.staffId, 'staff_reply', { messageId: msg.id, version: version?.number ?? null })
@@ -469,5 +486,18 @@ export async function resolveEscalation(escalationId: string, rawNote: string) {
   }
   await logEvent(e.jobId, session.staffId, 'escalation_resolved', { note })
   revalidatePath(`/studio/jobs/${e.jobId}`)
+  revalidatePath('/studio')
+}
+
+// ── Follow-ups ────────────────────────────────────────────────────────────────
+
+/** "Log call": staff followed up by phone (or otherwise); clears the flag. */
+export async function logFollowupCall(followupId: string, note: string) {
+  const session = await requireStaff()
+  const f = await closeFollowup(followupId, session.staffId, note.trim().slice(0, 2000))
+  if (f) {
+    await logEvent(f.jobId, session.staffId, 'followup_logged', { note })
+    revalidatePath(`/studio/jobs/${f.jobId}`)
+  }
   revalidatePath('/studio')
 }
