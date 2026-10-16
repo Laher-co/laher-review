@@ -31,3 +31,23 @@ describe('customer email templates', () => {
     expect(t.indexOf('Band: thinner')).toBeLessThan(t.indexOf('What happens next'))
   })
 })
+
+describe('reminders are gentle and varied', () => {
+  const reminders = [1, 2, 3].flatMap(n => [designReminder({ ...c, n: n as 1 | 2 | 3 }), sizeReminder({ ...c, n: n as 1 | 2 | 3 })])
+  it('never sound urgent or final', () => {
+    const banned = /\b(last|final)\b|don.t miss|deadline|urgent|asap|as soon as possible|hurry|expire|running out|before it.s too late|act now/i
+    for (const e of reminders) {
+      expect(e.subject).not.toMatch(banned)
+      expect(e.text).not.toMatch(banned)
+    }
+  })
+  it('say there’s no rush and offer help', () => {
+    for (const e of reminders) {
+      expect(e.text).toMatch(/no rush|whenever|take (all )?(the|your) time/i)
+      expect(e.text).toMatch(/message|help/i)
+    }
+  })
+  it('use different wording each day', () => {
+    expect(new Set(reminders.map(e => e.subject)).size).toBe(6)
+  })
+})

@@ -34,8 +34,8 @@ function layout(c: Common, o: {
   ${(o.after ?? []).map(p => `<p style="margin:0 0 14px">${p}</p>`).join('\n  ')}
   <p style="margin:24px 0 28px"><a href="${o.button.href}" style="display:inline-block;background:#4A3022;color:#F8F4EE;text-decoration:none;padding:15px 24px;border-radius:10px;font-size:16px">${esc(o.button.label)}</a></p>
   ${ringLine ? `<div style="margin:0 0 24px;padding:14px 16px;border:1px solid #E4D9CB;border-radius:10px;background:#FFFFFF">
-    <strong>Please confirm your ring size.</strong> We need it before your ring can go into production.
-    <a href="${c.pageUrl}#ring-size" style="color:#4A3022">Add my ring size</a>
+    <strong>Please confirm your ring size</strong> whenever you’re ready. We’ll need it before your ring goes into production,
+    and if you’re not sure of it we’re happy to help. <a href="${c.pageUrl}#ring-size" style="color:#4A3022">Add my ring size</a>
   </div>` : ''}
   <p style="margin:0;color:#8C7B6E;font-size:14px">Please reply on <a href="${c.pageUrl}" style="color:#4A3022">your design page</a> rather than by email, so ${esc(c.designer)} sees it straight away.</p>
   <p style="margin:26px 0 0;color:#8C7B6E;font-size:13px">LAHER · Bespoke fine jewellery, Sydney</p>
@@ -49,7 +49,7 @@ function layout(c: Common, o: {
     ...(o.list ?? []).map(l => `• ${l}`),
     ...(o.after ?? []).map(strip),
     `${o.button.label}: ${o.button.href}`,
-    ringLine ? `Please confirm your ring size. We need it before your ring can go into production: ${c.pageUrl}#ring-size` : '',
+    ringLine ? `Please confirm your ring size whenever you’re ready. We’ll need it before your ring goes into production, and if you’re not sure of it we’re happy to help: ${c.pageUrl}#ring-size` : '',
     `Please reply on your design page rather than by email, so ${c.designer} sees it straight away: ${c.pageUrl}`,
     'LAHER · Bespoke fine jewellery, Sydney',
   ].filter(Boolean).join('\n\n')
@@ -120,30 +120,74 @@ export function changesSummary(c: Common & { what: string; changes: string[]; co
   }
 }
 
-const DESIGN_REMINDERS = [
-  { subject: 'Your design is ready for your feedback', heading: 'Your design is waiting for you',
-    line: (d: string) => `${esc(d)} would love to hear what you think of your design. When you have a moment, take a look and let us know.` },
-  { subject: 'A gentle reminder: your design is waiting', heading: 'Just a gentle reminder',
-    line: (d: string) => `Your design is ready and waiting. Approve it, or tell ${esc(d)} what you’d like changed. It only takes a minute.` },
-  { subject: 'We’d love your thoughts on your design', heading: 'We’d love your thoughts',
-    line: () => 'We haven’t heard from you yet, so we wanted to check in. If anything’s unclear or you’d like to chat it through, just send us a message on your page.' },
+// Reminders are gentle check-ins: no urgency, no deadlines, no "last reminder".
+// The wording changes each time so they never feel automated.
+const DESIGN_REMINDERS: { subject: string; heading: string; lines: (d: string) => string[]; button: string }[] = [
+  {
+    subject: 'Your design is ready whenever you are',
+    heading: 'Your design is ready to view',
+    lines: d => [
+      `Just a quick note to say the design ${esc(d)} created for you is ready to look at, whenever suits you. There’s no rush at all.`,
+      'When you’ve had a look, you can approve it or let us know anything you’d like changed, right on your page.',
+    ],
+    button: 'View your design',
+  },
+  {
+    subject: 'A little note from the LAHER studio',
+    heading: 'Just checking in',
+    lines: () => [
+      'We hope you’re well. We wanted to check in and see whether you’ve had a chance to look at your design. Please take all the time you need.',
+      'If anything’s unclear, or you’d like to talk anything through, just send us a message on your page. We’re always happy to help.',
+    ],
+    button: 'Take a look',
+  },
+  {
+    subject: 'We’re here whenever you need us',
+    heading: 'Here whenever you’re ready',
+    lines: d => [
+      'Choosing the details of your ring is a big decision, and it’s completely fine to take your time with it.',
+      `Your design will be waiting on your page whenever you’re ready. If you have questions, want a second opinion or would simply like to chat it through, send us a message there and ${esc(d)} or the team will get back to you.`,
+    ],
+    button: 'Visit your design page',
+  },
 ]
 
 export function designReminder(c: Common & { n: 1 | 2 | 3 }): EmailContent {
   const r = DESIGN_REMINDERS[c.n - 1]
   return {
     subject: r.subject,
-    ...layout(c, { heading: r.heading, paragraphs: [r.line(c.designer)], button: { label: 'View your design', href: c.pageUrl } }),
+    ...layout(c, { heading: r.heading, paragraphs: r.lines(c.designer), button: { label: r.button, href: c.pageUrl } }),
   }
 }
 
-const SIZE_REMINDERS = [
-  { subject: 'Please confirm your ring size', heading: 'We need your ring size',
-    line: 'Thank you for approving your design. Before it can go into production, we need your ring size.' },
-  { subject: 'Reminder: we need your ring size', heading: 'A reminder about your ring size',
-    line: 'Your design is approved and ready to go. We just need your ring size before production can start.' },
-  { subject: 'Your ring size: last reminder', heading: 'Your ring size',
-    line: 'We still need your ring size to start making your ring. If you’re unsure, send us a message on your page and we’ll help you measure.' },
+const SIZE_REMINDERS: { subject: string; heading: string; lines: (d: string) => string[]; button: string }[] = [
+  {
+    subject: 'Your ring size, whenever you’re ready',
+    heading: 'Thank you for approving your design',
+    lines: d => [
+      `We’re so glad you’re happy with your design. The one thing ${esc(d)} will need before making your ring is your ring size.`,
+      'Whenever you’re ready, you can add it on your page. If you’re not sure of your size, just send us a message there and we’ll help you work it out.',
+    ],
+    button: 'Add my ring size',
+  },
+  {
+    subject: 'A quick note about your ring size',
+    heading: 'Just checking in',
+    lines: () => [
+      'We wanted to check in about your ring size. There’s no rush at all.',
+      'If you’d like a little help finding it, we’re happy to talk you through a few easy ways to measure. Just send us a message on your page whenever suits you.',
+    ],
+    button: 'Add my ring size',
+  },
+  {
+    subject: 'Here to help with your ring size',
+    heading: 'We’re here to help',
+    lines: () => [
+      'Finding the right ring size can be tricky, so please take all the time you need.',
+      'If it would be easier to talk it through, send us a message on your page and we’ll find a time to chat that suits you. Your approved design is safe with us in the meantime.',
+    ],
+    button: 'Visit your design page',
+  },
 ]
 
 export function sizeReminder(c: Common & { n: 1 | 2 | 3 }): EmailContent {
@@ -152,8 +196,8 @@ export function sizeReminder(c: Common & { n: 1 | 2 | 3 }): EmailContent {
     subject: r.subject,
     ...layout(c, {
       heading: r.heading,
-      paragraphs: [r.line, 'Not sure of your size? Send us a message on your page and we’ll help.'],
-      button: { label: 'Add my ring size', href: `${c.pageUrl}#ring-size` },
+      paragraphs: r.lines(c.designer),
+      button: { label: r.button, href: r.button === 'Add my ring size' ? `${c.pageUrl}#ring-size` : c.pageUrl },
       skipRingLine: true,
     }),
   }
