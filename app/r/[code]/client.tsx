@@ -8,6 +8,7 @@ import DrawingCanvas, {
 } from '@/components/DrawingCanvas'
 import { Spinner } from '@/components/brand'
 import { AU_RING_SIZES, CHANGE_AREAS, RING_SIZE_STATUS_LABEL, type ChangeArea } from '@/lib/feedback'
+import { noteAround } from '@/lib/ring-size'
 import { submitDecision, submitRingSize, uploadAnnotation } from './actions'
 
 type Render = { id: string; url: string }
@@ -70,6 +71,7 @@ export function RingSizeBar({ code, size, status }: { code: string; size: string
               status === 'confirmed' ? 'bg-cocoa text-ivory' : status === 'submitted' ? 'border border-cocoa/30 text-cocoa' : 'bg-amber-700 text-white'}`}>
               {RING_SIZE_STATUS_LABEL[status]}
             </span>
+            {status === 'unconfirmed' && size && <span className="ml-1.5 text-cocoa-dark">– {noteAround(size)}</span>}
           </p>
           {status !== 'confirmed' && !open && (
             <button onClick={() => setOpen(true)} className="text-sm font-medium text-cocoa underline underline-offset-4">

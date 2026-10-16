@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { recordIssue } from '@/lib/issues'
 import { ensureStudioLink, ORDER_BOARD_ID } from '@/lib/studio-links'
+import { syncRingSizeFromCard } from '@/lib/ring-size-sync'
+import { getMyMemberId } from '@/lib/trello'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,11 +12,13 @@ export const GET  = () => new Response('ok')
 
 type TrelloAction = {
   type: string
+  idMemberCreator?: string
   data: {
+    customField?: { name?: string }
     card?: { id: string; name?: string }
     listAfter?: { id: string }
     list?: { id: string }
-    old?: { name?: string; idList?: string }
+    old?: { name?: string; idList?: string; desc?: string }
     board?: { id: string }
   }
 }
@@ -30,6 +34,26 @@ export async function POST(request: Request) {
   try { body = await request.json() } catch { return NextResponse.json({ ok: true }) }
   const a = body.action
   if (!a?.data?.card?.id || body.model?.id !== ORDER_BOARD_ID) return NextResponse.json({ ok: true })
+
+  // Finger size changed on the card: keep the job in step (latest change wins).
+  // The app's own writes (as the Review App user) are ignored so it can't loop.
+  const descEdit = a.type === 'updateCard' && typeof a.data.old?.desc === 'string'
+  const fieldEdit = a.type === 'updateCustomFieldItem' && /^finger size/i.test(a.data.customField?.name ?? '')
+  if (descEdit || fieldEdit) {
+    try {
+      if (a.idMemberCreator && a.idMemberCreator === await getMyMemberId()) return NextResponse.json({ ok: true, ignored: 'own change' })
+      const result = await syncRingSizeFromCard(a.data.card.id,
+        descEdit ? { kind: 'description', oldDesc: a.data.old!.desc! } : { kind: 'fields' })
+      return NextResponse.json({ ok: true, result })
+    } catch (err) {
+      await recordIssue({
+        kind: 'trello_webhook', jobId: null,
+        summary: `Sync the ring size from card ${a.data.card.name ?? a.data.card.id}`,
+        operation: null, error: err instanceof Error ? err.message : String(err),
+      })
+      return NextResponse.json({ ok: true, failed: true })
+    }
+  }
 
   // Card arrived in a list (created, copied, moved, converted) or was renamed
   const relevant =

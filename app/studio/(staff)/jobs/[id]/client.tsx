@@ -294,8 +294,9 @@ export function RingSizeControl({ jobId, size, status, confirmedBy, confirmedAt 
     <div className={`mt-4 rounded-xl border p-4 ${status === 'submitted' ? 'border-cocoa/40 bg-linen' : 'border-sand bg-ivory'}`}>
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs uppercase tracking-widest text-cocoa-light">Ring size</span>
-        <strong className="text-lg text-ink">{size ?? '—'}</strong>
+        <strong className="text-lg text-ink">{size ? (status === 'unconfirmed' ? `around ${size.replace(/^(around|about)\s+/i, '')}` : size) : '—'}</strong>
         <Badge tone={tone}>{RING_SIZE_STATUS_LABEL[status]}</Badge>
+        {status === 'unconfirmed' && size && <span className="text-xs text-stone">hint from the card (it says tbc)</span>}
         {status === 'confirmed' && confirmedBy && <span className="text-xs text-stone">by {confirmedBy}, {confirmedAt}</span>}
         {!editing && (
           <button className="ml-auto text-sm text-cocoa underline" onClick={() => setEditing(true)}>

@@ -23,7 +23,7 @@ import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
 import { emailContext, sendCustomerEmail } from '@/lib/customer-emails'
 import { staffReplied, versionReady } from '@/lib/customer-email-templates'
-import { extractEmail, descriptionSection, parseRingSize } from '@/lib/trello-parse'
+import { extractEmail, descriptionSection } from '@/lib/trello-parse'
 
 // ── Sign in / out ─────────────────────────────────────────────────────────────
 

@@ -104,7 +104,9 @@ export default function NewJobForm({ designers, initialCard = '' }: { designers:
               {preview.ringSize ?? 'Not given'}{' '}
               <Badge tone={preview.ringSizeStatus === 'confirmed' ? 'ok' : 'warn'}>{preview.ringSizeStatus}</Badge>
             </p>
-            {preview.ringSizeNote && <p className="mt-1 text-xs text-stone">Card says: “{preview.ringSizeNote}”</p>}
+            {preview.ringSizeStatus === 'unconfirmed' && preview.ringSize && (
+              <p className="mt-1 text-xs text-stone">The card says “tbc”, so this is a hint only: around {preview.ringSize}.</p>
+            )}
           </div>
 
           {state.error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}

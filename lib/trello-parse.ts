@@ -50,22 +50,6 @@ export function descriptionSection(desc: string, heading: string): string | null
   return text || null
 }
 
-export type RingSize = { size: string | null; status: 'unconfirmed' | 'confirmed'; note: string | null }
-
-/**
- * Reads the finger size from a card description. A plain size counts as
- * confirmed; blank or anything mentioning TBC is unconfirmed (the original
- * text is kept as a note, e.g. "TBC (5-6US)").
- */
-export function parseRingSize(desc: string): RingSize {
-  const raw = descriptionSection(desc, 'Finger Size')
-  if (!raw) return { size: null, status: 'unconfirmed', note: null }
-  if (/\btbc\b|\bto be confirmed\b|\bunknown\b|^n\/?a$/i.test(raw)) {
-    return { size: null, status: 'unconfirmed', note: raw }
-  }
-  return { size: raw.split('\n')[0].trim(), status: 'confirmed', note: null }
-}
-
 /** Accepts a Trello card URL, short link, or 24-character id. */
 export function parseCardRef(input: string): string | null {
   const s = input.trim()

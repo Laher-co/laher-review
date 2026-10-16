@@ -17,7 +17,7 @@ export async function openWaiting(jobId: string, reason: 'message' | 'decision' 
 }
 
 /** Stops the timer, recording the response time in working minutes (for the KPIs). */
-async function closeOpen(jobId: string, staffId: string) {
+async function closeOpen(jobId: string, staffId: string | null) {
   const now = new Date()
   const open = await db.select().from(waiting).where(and(eq(waiting.jobId, jobId), isNull(waiting.answeredAt)))
   for (const w of open) {
@@ -34,7 +34,7 @@ async function closeOpen(jobId: string, staffId: string) {
  * the timer keeps running from that message, so a reply in one thread can't
  * hide a question in another.
  */
-export async function answerWaiting(jobId: string, staffId: string) {
+export async function answerWaiting(jobId: string, staffId: string | null) {
   await closeOpen(jobId, staffId)
 
   const rows = await db.select({ versionId: messages.versionId, author: messages.author, createdAt: messages.createdAt })

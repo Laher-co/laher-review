@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  parseDesignerList, findStageList, parseRingSize, descriptionSection, parseCardRef, extractEmail,
+  parseDesignerList, findStageList, descriptionSection, parseCardRef, extractEmail,
 } from './trello-parse'
 
 describe('parseDesignerList', () => {
@@ -41,27 +41,6 @@ describe('findStageList', () => {
   })
   it('returns undefined when that designer has no such list', () => {
     expect(findStageList(lists, 'Tara', 'Print Ready')).toBeUndefined()
-  })
-})
-
-describe('parseRingSize', () => {
-  const card = (size: string) =>
-    `**Name:**\nLiam Kilpatrick\n\n**Finger Size:**\n${size}\n\n**Gemstones:**\nPearl`
-
-  it('reads a plain size as confirmed', () => {
-    expect(parseRingSize(card('T 1/2'))).toEqual({ size: 'T 1/2', status: 'confirmed', note: null })
-  })
-  it('handles a blank line after the heading', () => {
-    expect(parseRingSize(card('\nJ 1/2')).size).toBe('J 1/2')
-  })
-  it('treats TBC as unconfirmed and keeps the hint', () => {
-    expect(parseRingSize(card('TBC (5-6US)'))).toEqual({ size: null, status: 'unconfirmed', note: 'TBC (5-6US)' })
-  })
-  it('treats a missing heading as unconfirmed', () => {
-    expect(parseRingSize('**Name:**\nSomeone')).toEqual({ size: null, status: 'unconfirmed', note: null })
-  })
-  it('keeps descriptive sizes as written', () => {
-    expect(parseRingSize(card('cast at size Y')).size).toBe('cast at size Y')
   })
 })
 

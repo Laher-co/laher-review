@@ -60,6 +60,13 @@ export async function getCard(ref: string): Promise<TrelloCard | null> {
 }
 
 export const getList        = (id: string)      => trello<TrelloList>('GET', `/lists/${id}?fields=name`)
+
+/** The app's own Trello user (LAHER Review App), so webhooks can ignore its own changes. */
+let myMemberId: string | null = null
+export async function getMyMemberId() {
+  if (!myMemberId) myMemberId = (await trello<{ id: string }>('GET', '/members/me?fields=id')).id
+  return myMemberId
+}
 export const getBoardLists  = (boardId: string) => trello<TrelloList[]>('GET', `/boards/${boardId}/lists?filter=open&fields=name`)
 export const getBoardLabels = (boardId: string) => trello<TrelloLabel[]>('GET', `/boards/${boardId}/labels?limit=1000`)
 export const getBoardFields = (boardId: string) => trello<TrelloCustomField[]>('GET', `/boards/${boardId}/customFields`)
@@ -76,6 +83,27 @@ export function cardHasLabel(card: TrelloCard, name: string) {
 export async function cardFunnel(card: TrelloCard) {
   const list = await getList(card.idList)
   return { list, funnel: parseDesignerList(list.name) }
+}
+
+/**
+ * When the card's finger size was last changed in each place: the
+ * description's Finger Size section, and the Finger Size custom fields.
+ */
+export async function ringSizeChangeTimes(cardId: string) {
+  const actions = await trello<{ type: string; date: string; data: { old?: { desc?: string }; card?: { desc?: string }; customField?: { name?: string } } }[]>(
+    'GET', `/cards/${cardId}/actions?filter=updateCard:desc,updateCustomFieldItem&limit=100`)
+  const { descriptionSection } = await import('./trello-parse')
+  const section = (d?: string) => (descriptionSection(d ?? '', 'Finger Size') ?? '').trim()
+  let descChangedAt: Date | null = null, fieldsChangedAt: Date | null = null
+  for (const a of actions) { // newest first
+    if (!descChangedAt && a.type === 'updateCard' && typeof a.data.old?.desc === 'string' && section(a.data.old.desc) !== section(a.data.card?.desc)) {
+      descChangedAt = new Date(a.date)
+    }
+    if (!fieldsChangedAt && a.type === 'updateCustomFieldItem' && /^finger size/i.test(a.data.customField?.name ?? '')) {
+      fieldsChangedAt = new Date(a.date)
+    }
+  }
+  return { descChangedAt, fieldsChangedAt }
 }
 
 /** Reads the app's finger size custom fields, if they've been set. */
