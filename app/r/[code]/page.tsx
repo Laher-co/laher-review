@@ -32,6 +32,8 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
     .map(({ m, staffName }) => ({
       id: m.id, author: m.author, staffName, body: m.body,
       drawings: m.annotations.map(a => a.drawingUrl), when: formatSydney(m.createdAt),
+      byEmail: m.source === 'email',
+      attachments: m.attachments.map(a => ({ url: a.url, name: a.name, isImage: a.contentType.startsWith('image/') })),
     }))
   const designer = designerName ?? 'Your designer'
   const firstName = job.customerName.split(' ')[0]

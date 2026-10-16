@@ -57,6 +57,13 @@
       "when": 1792111549949,
       "tag": "0007_followups",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792119696816,
+      "tag": "0008_replies_and_do_not_email",
+      "breakpoints": true
     }
   ]
 }

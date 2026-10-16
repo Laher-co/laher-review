@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { recordIssue } from '@/lib/issues'
 import { ensureStudioLink, ORDER_BOARD_ID } from '@/lib/studio-links'
 import { syncRingSizeFromCard } from '@/lib/ring-size-sync'
-import { getMyMemberId } from '@/lib/trello'
+import { getMyMemberId, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
+import { syncDoNotEmail } from '@/lib/do-not-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +21,7 @@ type TrelloAction = {
     list?: { id: string }
     old?: { name?: string; idList?: string; desc?: string }
     board?: { id: string }
+    label?: { name?: string }
   }
 }
 
@@ -34,6 +36,21 @@ export async function POST(request: Request) {
   try { body = await request.json() } catch { return NextResponse.json({ ok: true }) }
   const a = body.action
   if (!a?.data?.card?.id || body.model?.id !== ORDER_BOARD_ID) return NextResponse.json({ ok: true })
+
+  // "Do not email" label added or removed in Trello: update the Studio switch
+  if ((a.type === 'addLabelToCard' || a.type === 'removeLabelFromCard') &&
+      a.data.label?.name?.trim().toLowerCase() === LABEL_DO_NOT_EMAIL.toLowerCase()) {
+    try {
+      return NextResponse.json({ ok: true, result: await syncDoNotEmail(a.data.card.id) })
+    } catch (err) {
+      await recordIssue({
+        kind: 'trello_webhook', jobId: null,
+        summary: `Update “Do not email” from card ${a.data.card.name ?? a.data.card.id}`,
+        operation: null, error: err instanceof Error ? err.message : String(err),
+      })
+      return NextResponse.json({ ok: true, failed: true })
+    }
+  }
 
   // Finger size changed on the card: keep the job in step (latest change wins).
   // The app's own writes (as the Review App user) are ignored so it can't loop.

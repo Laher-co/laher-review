@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
-  logFollowupCall, publishVersion, resolveEscalation, sendStaffReply,
+  customerRepliedByEmail, logFollowupCall, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -327,6 +327,7 @@ export function RingSizeControl({ jobId, size, status, confirmedBy, confirmedAt 
 
 export type StaffThreadMessage = {
   id: string; author: 'customer' | 'staff'; staffName: string | null; body: string; drawings: string[]; when: string
+  byEmail: boolean; attachments: { url: string; name: string; isImage: boolean }[]
 }
 
 export function StaffThread({ jobId, versionId, title, customerName, messages }: {
@@ -352,7 +353,7 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
             <li key={m.id} className={`flex ${staffMsg ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${staffMsg ? 'rounded-br-md bg-cocoa text-ivory' : 'rounded-bl-md border border-sand bg-white text-ink'}`}>
                 <p className={`mb-0.5 text-[11px] uppercase tracking-wider ${staffMsg ? 'text-ivory/70' : 'text-cocoa-light'}`}>
-                  {staffMsg ? m.staffName ?? 'Studio' : customerName} · {m.when}
+                  {staffMsg ? m.staffName ?? 'Studio' : customerName} · {m.when}{m.byEmail && ' · by email'}
                 </p>
                 {m.body && <p className="whitespace-pre-line text-sm leading-relaxed">{m.body}</p>}
                 {m.drawings.length > 0 && (
@@ -364,6 +365,17 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
                       </button>
                     ))}
                   </div>
+                )}
+                {m.attachments.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {m.attachments.map(a => (
+                      <li key={a.url}>
+                        <a href={a.url} target="_blank" rel="noreferrer" className="text-cocoa underline">
+                          {a.isImage ? '🖼 ' : '📎 '}{a.name}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             </li>
@@ -379,7 +391,7 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
           {pending && <Spinner />} Send reply
         </button>
       </div>
-      <p className="mt-1.5 text-xs text-stone">The customer sees replies on their review page. Reply emails start in Phase 4.</p>
+      <p className="mt-1.5 text-xs text-stone">The customer sees your reply on their design page and gets an email (unless “Do not email” is on).</p>
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       {viewing && (
         <Lightbox start={viewing.i} onClose={() => setViewing(null)}
@@ -483,6 +495,62 @@ export function FollowupPanel({ items }: { items: { id: string; label: string; f
         </div>
       ))}
       {error && <p className="text-sm text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+// ── Customer emails ───────────────────────────────────────────────────────────
+
+/** On/off switch that also adds or removes the "Do not email" label in Trello. */
+export function DoNotEmailSwitch({ jobId, on }: { jobId: string; on: boolean }) {
+  const { pending, error, run } = useAction()
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button type="button" role="switch" aria-checked={on} disabled={pending}
+        onClick={() => run(() => setDoNotEmail(jobId, !on))}
+        className={`inline-flex items-center gap-2.5 rounded-full border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ${on ? 'border-red-200 bg-red-50 text-red-700' : 'border-sand bg-white text-cocoa'}`}>
+        <span className={`relative h-5 w-9 rounded-full transition-colors ${on ? 'bg-red-600' : 'bg-sand'}`}>
+          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+        </span>
+        {pending ? <Spinner /> : null}
+        Do not email {on ? 'on' : 'off'}
+      </button>
+      {error && <p className="text-xs text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+/** The customer answered by email outside the app: stop reminders and log a note. */
+export function RepliedByEmailButton({ jobId, notes }: { jobId: string; notes: { by: string; when: string; note: string | null }[] }) {
+  const { pending, error, run } = useAction()
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState('')
+  return (
+    <div className="rounded-xl border border-sand bg-white/60 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm text-stone">Customer emailed the studio directly?</span>
+        {!open && (
+          <button className="ml-auto text-sm text-cocoa underline" onClick={() => setOpen(true)}>Customer replied by email</button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <input value={note} onChange={e => setNote(e.target.value)} placeholder="What did they say? (optional)" maxLength={2000}
+            className="flex-1 rounded-lg border border-sand bg-white px-3 py-2 text-base focus:border-cocoa focus:outline-none sm:text-sm" />
+          <button className={btnPrimary} disabled={pending}
+            onClick={() => run(async () => { await customerRepliedByEmail(jobId, note); setOpen(false); setNote('') })}>
+            {pending && <Spinner />} Save and stop reminders
+          </button>
+        </div>
+      )}
+      {notes.length > 0 && (
+        <ul className="mt-2 space-y-1 text-sm text-ink">
+          {notes.map((n, i) => (
+            <li key={i}><span className="text-stone">{n.when} · {n.by}:</span> Customer replied by email{n.note ? `: “${n.note}”` : '.'}</li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
     </div>
   )
 }

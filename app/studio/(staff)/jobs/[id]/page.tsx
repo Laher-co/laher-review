@@ -5,8 +5,7 @@ import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
-import { Badge } from '@/components/brand'
-import { CopyLink, DraftVersion, FollowupPanel, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { CopyLink, DoNotEmailSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
@@ -24,8 +23,8 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     db.select({ id: staff.id, name: staff.name }).from(staff),
     // Read live so a "Do not email" label added in Trello shows straight away
     getCard(job.trelloCardId).catch(() => null),
-    db.select({ type: events.type, details: events.details }).from(events)
-      .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested']))),
+    db.select({ type: events.type, details: events.details, staffId: events.staffId, createdAt: events.createdAt }).from(events)
+      .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested', 'customer_replied_by_email']))),
     db.select().from(decisions).where(eq(decisions.jobId, job.id)),
     db.select().from(messages).where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
     db.select().from(waiting).where(and(eq(waiting.jobId, job.id), isNull(waiting.answeredAt))),
@@ -39,7 +38,12 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     .map(m => ({
       id: m.id, author: m.author, staffName: m.staffId ? people.find(p => p.id === m.staffId)?.name ?? null : null,
       body: m.body, drawings: m.annotations.map(a => a.drawingUrl), when: formatSydney(m.createdAt),
+      byEmail: m.source === 'email',
+      attachments: m.attachments.map(a => ({ url: a.url, name: a.name, isImage: a.contentType.startsWith('image/') })),
     }))
+  const emailReplyNotes = jobEvents.filter(e => e.type === 'customer_replied_by_email')
+    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+    .map(e => ({ by: people.find(p => p.id === e.staffId)?.name ?? 'Studio', when: formatSydney(e.createdAt), note: (e.details as { note?: string | null }).note ?? null }))
   // What happened on Trello when each version was published / answered
   type Outcome = { moved: boolean; from?: string; to?: string; reason?: string }
   const outcome = (types: string[]) => new Map(jobEvents.filter(e => types.includes(e.type)).map(e => {
@@ -61,7 +65,8 @@ export default async function JobPage({ params }: { params: { id: string } }) {
   const nameOf = (id: string | null) => people.find(p => p.id === id)?.name ?? '—'
   const draft = allVersions.find(v => v.status === 'draft')
   const published = allVersions.filter(v => v.status === 'published')
-  const doNotEmail = card ? cardHasLabel(card, LABEL_DO_NOT_EMAIL) : false
+  // The label is the source of truth when Trello can be reached (it may have changed a moment ago)
+  const doNotEmail = card ? cardHasLabel(card, LABEL_DO_NOT_EMAIL) : job.doNotEmail
   const nextNumber = (allVersions[0]?.number ?? 0) + 1
 
   return (
@@ -73,9 +78,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             <h1 className="font-serif text-3xl text-cocoa-dark">{job.customerName}</h1>
             <p className="mt-1 text-sm text-stone">{job.customerEmail}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {doNotEmail && <Badge tone="danger">Do not email</Badge>}
-          </div>
+          <DoNotEmailSwitch jobId={job.id} on={doNotEmail} />
         </div>
         {job.status === 'approved_size_needed' && (
           <p className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -124,6 +127,8 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             : `${f.stoppedReason ?? ''} · flagged ${f.flaggedAt ? formatSydney(f.flaggedAt) : ''}`,
         }))} />
       )}
+
+      <RepliedByEmailButton jobId={job.id} notes={emailReplyNotes} />
 
       {/* General conversation (not tied to a version) */}
       <StaffThread jobId={job.id} versionId={null} title="General messages" customerName={job.customerName} messages={thread(null)} />

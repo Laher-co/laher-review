@@ -100,6 +100,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                       <p className="text-sm text-stone">{WAITING_FOR[w.reason]} · {designer ?? 'No designer'}</p>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
+                      {job.doNotEmail && <Badge tone="warn">Do not email</Badge>}
                       {escalatedJobIds.has(job.id) && <Badge tone="danger">Escalated</Badge>}
                       {overdue && <Badge tone="danger">Overdue</Badge>}
                       <span className={overdue ? 'font-semibold text-red-700' : 'text-cocoa'}>
@@ -125,7 +126,10 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                       <p className="truncate font-medium text-ink">{job.customerName}</p>
                       <p className="text-sm text-stone">{designer ?? 'No designer'} · since {formatSydney(f.startedAt)}</p>
                     </div>
-                    <Badge tone={f.status === 'active' ? 'neutral' : 'danger'}>{followupLabel(f)}</Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {job.doNotEmail && <Badge tone="warn">Do not email</Badge>}
+                      <Badge tone={f.status === 'active' ? 'neutral' : 'danger'}>{followupLabel(f)}</Badge>
+                    </div>
                   </Link>
                 </li>
               ))}
@@ -176,6 +180,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                           <Badge tone={followupByJob.get(job.id)!.status === 'active' ? 'neutral' : 'danger'}>{followupLabel(followupByJob.get(job.id)!)}</Badge>
                         )}
                         {job.ringSizeStatus !== 'confirmed' && <Badge tone="neutral">Size {job.ringSizeStatus}</Badge>}
+                        {job.doNotEmail && <Badge tone="warn">Do not email</Badge>}
                       </div>
                       <span className="text-xs text-stone sm:w-24 sm:text-right">{formatSydney(job.updatedAt)}</span>
                     </Link>

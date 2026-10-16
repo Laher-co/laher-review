@@ -7,6 +7,7 @@ import { newPublicCode } from './jobs'
 import { cardFunnel, cardHasLabel, LABEL_DO_NOT_EMAIL, readRingSizeFields, ringSizeChangeTimes, type TrelloCard } from './trello'
 import { descriptionSection, extractEmail } from './trello-parse'
 import { resolveLatestRingSize, type RingStatus } from './ring-size'
+import { newReplyToken } from './email-reply'
 
 export type CardPreview = {
   cardId: string
@@ -75,6 +76,8 @@ export async function createJobFromDetails(d: CardPreview, input: {
     ringSize:       d.ringSize,
     ringSizeStatus: d.ringSizeStatus,
     createdBy:      input.createdBy,
+    doNotEmail:     d.doNotEmail,
+    replyToken:     newReplyToken(),
   }).onConflictDoNothing({ target: jobs.trelloCardId }).returning()
   if (!job) {
     const [existing] = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.trelloCardId, d.cardId))

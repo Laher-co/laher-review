@@ -9,7 +9,7 @@ import {
 export const staffRole        = pgEnum('staff_role', ['designer', 'va', 'admin', 'escalations', 'owner'])
 export const issueKind        = pgEnum('issue_kind', [
   'trello_move', 'trello_comment', 'trello_attachment', 'trello_label', 'trello_fields',
-  'email_send', 'email_bounce', 'webhook', 'trello_webhook',
+  'email_send', 'email_bounce', 'webhook', 'trello_webhook', 'email_inbound',
 ])
 export const issueStatus      = pgEnum('issue_status', ['open', 'resolved', 'ignored'])
 export const jobStatus        = pgEnum('job_status', ['draft', 'in_review', 'changes_requested', 'approved', 'approved_size_needed', 'closed'])
@@ -55,7 +55,11 @@ export const jobs = pgTable('jobs', {
   ringSizeConfirmedBy: uuid('ring_size_confirmed_by').references(() => staff.id),
   ringSizeConfirmedAt: timestamp('ring_size_confirmed_at', { withTimezone: true }),
   // Automated reminder emails run only the first time a customer goes quiet
-  autoSequenceUsed:    boolean('auto_sequence_used').notNull().default(false),
+  autoSequenceUsed:    boolean('auto_sequence_used').notNull().default(false), // no longer used (design reminders now follow the version number)
+  // Mirrors the Trello "Do not email" label (the label stays the source of truth at send time)
+  doNotEmail:          boolean('do_not_email').notNull().default(false),
+  // This job's own reply address: j<replyToken>@reply.laher.co
+  replyToken:          text('reply_token').unique(),
   sizeSequenceUsed:    boolean('size_sequence_used').notNull().default(false),
   createdBy:           uuid('created_by').references(() => staff.id),
   createdAt:           createdAt(),
@@ -106,6 +110,8 @@ export type Annotation = {
   strokes?:   unknown
 }
 
+export type MessageAttachment = { url: string; name: string; contentType: string; size: number }
+
 export const messages = pgTable('messages', {
   id:          uuid('id').primaryKey().defaultRandom(),
   jobId:       uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
@@ -114,6 +120,10 @@ export const messages = pgTable('messages', {
   staffId:     uuid('staff_id').references(() => staff.id),
   body:        text('body').notNull(),
   annotations: jsonb('annotations').$type<Annotation[]>().notNull().default([]),
+  // Replies by email: where it came from, and any files they attached
+  source:      text('source').notNull().default('page'),             // 'page' | 'email'
+  emailFrom:   text('email_from'),
+  attachments: jsonb('attachments').$type<MessageAttachment[]>().notNull().default([]),
   // One per send, generated in the browser: a double-tap can't post twice
   clientKey:   text('client_key').unique(),
   createdAt:   createdAt(),
@@ -235,6 +245,9 @@ export const followups = pgTable('followups', {
   id:             uuid('id').primaryKey().defaultRandom(),
   jobId:          uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
   kind:           followupKind('kind').notNull(),
+  // 'first': Version One (day 2, 4, 7, then REQUIRES CALL)
+  // 'later': Version Two onwards (one reminder on day 2, then FOLLOW UP on day 4)
+  plan:           text('plan').notNull().default('first'),
   startedAt:      timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
   automated:      boolean('automated').notNull().default(false),   // this spell sends reminder emails
   remindersSent:  integer('reminders_sent').notNull().default(0),

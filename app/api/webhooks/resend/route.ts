@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import { db, emails } from '@/lib/db'
-import { recordIssue } from '@/lib/issues'
+import { recordIssue, tracked } from '@/lib/issues'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,7 +19,14 @@ export async function POST(request: Request) {
 
   const event = JSON.parse(body) as {
     type: string
-    data: { email_id?: string; to?: string[]; subject?: string; bounce?: { message?: string; subType?: string } }
+    data: { email_id?: string; to?: string[]; from?: string; subject?: string; bounce?: { message?: string; subType?: string } }
+  }
+
+  // A customer replied to one of our emails (to j<token>@reply.laher.co)
+  if (event.type === 'email.received' && event.data.email_id) {
+    await tracked('email_inbound', null, `Record an email reply from ${event.data.from ?? 'a customer'} (“${event.data.subject ?? ''}”)`,
+      { type: 'inbound.process', args: { emailId: event.data.email_id } })
+    return NextResponse.json({ ok: true })
   }
   if (event.type !== 'email.bounced' && event.type !== 'email.complained') return NextResponse.json({ ok: true, ignored: event.type })
 

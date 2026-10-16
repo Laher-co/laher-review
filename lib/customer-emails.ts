@@ -1,5 +1,5 @@
 import 'server-only'
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db, emails, jobs, staff } from './db'
 import { sendEmail } from './email'
 import { logEvent } from './events'
@@ -7,8 +7,22 @@ import { tracked } from './issues'
 import { reviewUrl } from './jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from './trello'
 import type { EmailContent } from './customer-email-templates'
+import { newReplyToken, replyAddress } from './email-reply'
 
 export const CUSTOMER_REPLY_TO = 'hello@leiedesign.com'
+
+/** Replies come back into the app once receiving on reply.laher.co is verified (INBOUND_EMAIL=1). */
+export const repliesComeBack = () => process.env.INBOUND_EMAIL === '1'
+
+/** The job's own reply address, creating its token the first time it's needed. */
+export async function jobReplyAddress(jobId: string) {
+  const [job] = await db.select({ token: jobs.replyToken }).from(jobs).where(eq(jobs.id, jobId))
+  if (job?.token) return replyAddress(job.token)
+  const token = newReplyToken()
+  await db.update(jobs).set({ replyToken: token }).where(and(eq(jobs.id, jobId), isNull(jobs.replyToken)))
+  const [again] = await db.select({ token: jobs.replyToken }).from(jobs).where(eq(jobs.id, jobId))
+  return replyAddress(again.token!)
+}
 
 /** The details every customer email needs. */
 export async function emailContext(jobId: string) {
@@ -22,6 +36,8 @@ export async function emailContext(jobId: string) {
       designer: row.designer ?? 'Your designer',
       pageUrl: reviewUrl(row.job),
       ringSizeNeeded: row.job.ringSizeStatus === 'unconfirmed',
+      ringSizeHint: row.job.ringSizeStatus === 'unconfirmed' ? row.job.ringSize : null,
+      replyByEmail: repliesComeBack(),
     },
   }
 }
@@ -48,13 +64,19 @@ export async function sendCustomerEmail(jobId: string, type: string, content: Em
 export async function deliverCustomerEmail(a: { jobId: string; type: string } & EmailContent): Promise<'sent' | 'skipped'> {
   const [job] = await db.select().from(jobs).where(eq(jobs.id, a.jobId))
   if (!job) throw new Error('Job not found')
-  if (await doNotEmail(a.jobId)) {
+  // Blocked by the Trello label or the Studio toggle (whichever is on: if a
+  // label change didn't reach the app, we'd rather not email than email)
+  const labelled = await doNotEmail(a.jobId)
+  if (labelled && !job.doNotEmail) await db.update(jobs).set({ doNotEmail: true }).where(eq(jobs.id, job.id))
+  const blocked = labelled || job.doNotEmail
+  if (blocked) {
     await db.insert(emails).values({ jobId: a.jobId, to: job.customerEmail, type: a.type, status: 'skipped_do_not_email' })
     await logEvent(a.jobId, null, 'customer_email_skipped', { type: a.type, reason: 'Do not email' })
     return 'skipped'
   }
   await sendEmail({
-    to: job.customerEmail, type: a.type, jobId: a.jobId, replyTo: CUSTOMER_REPLY_TO,
+    to: job.customerEmail, type: a.type, jobId: a.jobId,
+    replyTo: repliesComeBack() ? await jobReplyAddress(a.jobId) : CUSTOMER_REPLY_TO,
     subject: a.subject, html: a.html, text: a.text,
   })
   await logEvent(a.jobId, null, 'customer_emailed', { type: a.type, subject: a.subject })

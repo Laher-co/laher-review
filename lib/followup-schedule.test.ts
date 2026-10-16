@@ -16,3 +16,11 @@ describe('reminderDueAt (10am Sydney, calendar days)', () => {
     expect(reminderDueAt(syd(2026, 10, 2, 15), 1)).toEqual(syd(2026, 10, 4, 10)) // DST starts 4 Oct
   })
 })
+
+describe('reminderDueAt for later versions', () => {
+  it('one reminder on day 2, FOLLOW UP on day 4', () => {
+    const published = syd(2026, 10, 16, 21, 30)
+    expect(reminderDueAt(published, 1, 'later')).toEqual(syd(2026, 10, 18, 10))
+    expect(reminderDueAt(published, 2, 'later')).toEqual(syd(2026, 10, 20, 10))
+  })
+})
