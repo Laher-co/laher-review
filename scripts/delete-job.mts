@@ -12,7 +12,7 @@ const [job] = await sql`select customer_name, customer_email from jobs where id 
 if (!job) throw new Error(`No job with id ${jobId}`)
 
 let deleted = 0
-for (const prefix of [`renders/${jobId}/`, `annotations/${jobId}/`]) {
+for (const prefix of [`renders/${jobId}/`, `annotations/${jobId}/`, `email-attachments/${jobId}/`]) {
   const { blobs } = await list({ prefix })
   if (blobs.length) await del(blobs.map(b => b.url))
   deleted += blobs.length

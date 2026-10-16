@@ -8,6 +8,7 @@ import { emitWebhook, logEvent } from '@/lib/events'
 import { jobPayload } from '@/lib/payload'
 import { openWaiting } from '@/lib/waiting'
 import { alertCustomerAction } from '@/lib/alerts'
+import { recordCustomerMessage } from '@/lib/customer-message'
 import { startSizeFollowup, stopFollowups } from '@/lib/followups'
 import { emailContext, sendCustomerEmail } from '@/lib/customer-emails'
 import { approvedSummary, changesSummary } from '@/lib/customer-email-templates'
@@ -305,42 +306,9 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
     .where(and(eq(messages.jobId, job.id), eq(messages.author, 'customer'), gt(messages.createdAt, sql`now() - interval '1 hour'`)))
   if (n >= 30) return { ok: false, error: 'You’ve sent a lot of messages in the last hour. Please try again a little later.' }
 
-  const inserted = await db.insert(messages).values({
-    jobId: job.id, versionId: version?.id ?? null, author: 'customer', body, annotations,
-    clientKey: input.clientKey.slice(0, 64) || null,
-  }).onConflictDoNothing({ target: messages.clientKey }).returning()
-  if (inserted.length === 0) return { ok: true } // same send arriving twice
-  await db.update(jobs).set({ updatedAt: new Date() }).where(eq(jobs.id, job.id))
-
-  const where = version ? versionTitle(version.number) : 'General'
-  const blocks = [`**MESSAGE FROM CUSTOMER: ${where}**`]
-  if (body) blocks.push(body)
-  if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
-  blocks.push(`Reply in the studio: ${studioLink(job.id)}`)
-  await tracked('trello_comment', job.id, `Post the customer’s message (${where}) on the Trello card`,
-    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: blocks.join('\n\n') } })
-  for (const [i, a] of annotations.entries()) {
-    const name = `Message drawing ${i + 1} – ${where}`
-    await tracked('trello_attachment', job.id, `Attach ${name} to the Trello card`,
-      { type: 'trello.attach', args: { cardId: job.trelloCardId, url: a.drawingUrl, name } })
-  }
-
-  await stopFollowups(job.id, ['design'], 'Customer sent a message')
-  await openWaiting(job.id, 'message')
-  await alertCustomerAction(job.id, `New message (${where})`,
-    [body, annotations.length ? `[${annotations.length} drawing${annotations.length > 1 ? 's' : ''} attached]` : ''].filter(Boolean).join('\n'))
-  await logEvent(job.id, null, 'customer_message', { messageId: inserted[0].id, version: version?.number ?? null })
-  await emitWebhook(job.id, 'message_created', {
-    ...jobPayload(job, designerName),
-    message: {
-      id: inserted[0].id,
-      author: 'customer',
-      thread: version ? 'version' : 'general',
-      version: version ? { number: version.number, title: versionTitle(version.number) } : null,
-      body,
-      drawings: annotations.map(a => ({ renderUrl: a.renderUrl, drawingUrl: a.drawingUrl })),
-    },
-    actor: { type: 'customer' },
+  await recordCustomerMessage(job, designerName, {
+    version: version ? { id: version.id, number: version.number } : null,
+    body, annotations, source: 'page', clientKey: input.clientKey.slice(0, 64) || null,
   })
   revalidatePath(`/r/${code}`)
   return { ok: true }

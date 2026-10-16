@@ -248,7 +248,7 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
   // old "card moved → email customer" Zap could fire for this card. Both run
   // as one tracked step, so a failure becomes an issue with a Retry button.
   const card = await getCard(job.trelloCardId).catch(() => null)
-  const doNotEmail = card ? cardHasLabel(card, LABEL_DO_NOT_EMAIL) : false
+  const doNotEmail = job.doNotEmail || (card ? cardHasLabel(card, LABEL_DO_NOT_EMAIL) : false)
   const trello: PublishResult['trello'] = moveOutcome(await tracked('trello_move', job.id,
     `Label the card “${LABEL_REVIEW_APP}” and move it to Revision (${versionTitle(v.number)} published)`,
     { type: 'trello.labelAndMove', args: { cardId: job.trelloCardId, label: LABEL_REVIEW_APP, stage: 'Revision' } }))
@@ -260,7 +260,7 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
     optionCount: full.options.length, note: full.designerNote,
   }))
   const customerEmail: PublishResult['customerEmail'] = sent.ok ? sent.value : 'failed'
-  await startDesignFollowup(job.id)
+  await startDesignFollowup(job.id, v.number)
 
   const url = reviewUrl(job)
   await logEvent(job.id, session.staffId, 'version_published', { number: v.number, trello, customerEmail })
@@ -499,5 +499,29 @@ export async function logFollowupCall(followupId: string, note: string) {
     await logEvent(f.jobId, session.staffId, 'followup_logged', { note })
     revalidatePath(`/studio/jobs/${f.jobId}`)
   }
+  revalidatePath('/studio')
+}
+
+// ── Customer emails ───────────────────────────────────────────────────────────
+
+/** The "Do not email" switch: also adds or removes the label on the Trello card. */
+export async function setDoNotEmail(jobId: string, on: boolean) {
+  const session = await requireStaff()
+  const [job] = await db.update(jobs).set({ doNotEmail: on, updatedAt: new Date() }).where(eq(jobs.id, jobId)).returning()
+  if (!job) throw new Error('Job not found.')
+  await tracked('trello_label', jobId, `${on ? 'Add' : 'Remove'} the “Do not email” label ${on ? 'on' : 'from'} the Trello card`,
+    { type: on ? 'trello.addLabel' : 'trello.removeLabel', args: { cardId: job.trelloCardId, name: LABEL_DO_NOT_EMAIL } })
+  await logEvent(jobId, session.staffId, on ? 'do_not_email_on' : 'do_not_email_off', { source: 'studio' })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath('/studio')
+}
+
+/** The customer answered by email to the shop (not through the app): stop reminders and note it. */
+export async function customerRepliedByEmail(jobId: string, rawNote: string) {
+  const session = await requireStaff()
+  const note = rawNote.trim().slice(0, 2000)
+  await stopFollowups(jobId, ['design'], `Customer replied by email (logged by ${session.name})`)
+  await logEvent(jobId, session.staffId, 'customer_replied_by_email', { note: note || null })
+  revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath('/studio')
 }

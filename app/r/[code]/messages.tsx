@@ -16,6 +16,8 @@ export type ThreadMessage = {
   body: string
   drawings: string[]
   when: string
+  byEmail: boolean
+  attachments: { url: string; name: string; isImage: boolean }[]
 }
 type Render = { id: string; url: string }
 
@@ -111,13 +113,20 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
               <li key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${mine ? 'rounded-br-md bg-cocoa text-ivory' : 'rounded-bl-md border border-sand bg-white text-ink'}`}>
                   <p className={`mb-1 text-[11px] uppercase tracking-wider ${mine ? 'text-ivory/70' : 'text-cocoa-light'}`}>
-                    {mine ? 'You' : `${m.staffName ?? 'LAHER'} · LAHER Studio`} · {m.when}
+                    {mine ? 'You' : `${m.staffName ?? 'LAHER'} · LAHER Studio`} · {m.when}{m.byEmail && ' · by email'}
                   </p>
                   {m.body && <p className="whitespace-pre-line text-[15px] leading-relaxed">{m.body}</p>}
                   {m.drawings.length > 0 && (
                     <LightboxThumbs className="mt-2 grid grid-cols-3 gap-1.5" sizes="25vw"
                       images={m.drawings.map((u, i) => ({ url: u, alt: `Drawing ${i + 1}`, caption: mine ? 'Your drawing' : 'Drawing' }))} />
                   )}
+                  {m.attachments.some(a => a.isImage) && (
+                    <LightboxThumbs className="mt-2 grid grid-cols-3 gap-1.5" sizes="25vw"
+                      images={m.attachments.filter(a => a.isImage).map(a => ({ url: a.url, alt: a.name, caption: a.name }))} />
+                  )}
+                  {m.attachments.filter(a => !a.isImage).map(a => (
+                    <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="mt-1.5 block text-sm underline">📎 {a.name}</a>
+                  ))}
                 </div>
               </li>
             )

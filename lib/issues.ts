@@ -34,6 +34,7 @@ const OPERATIONS: Record<string, (a: Record<string, unknown>) => Promise<unknown
   },
   'trello.comment':     async a => addComment(String(a.cardId), String(a.text)),
   'trello.attach':      async a => attachUrl(String(a.cardId), String(a.url), String(a.name)),
+  'trello.addLabel':    async a => ensureLabel(await card(String(a.cardId)), String(a.name)),
   'trello.removeLabel': async a => removeLabel(await card(String(a.cardId)), String(a.name)),
   'trello.ringFields':  async a => writeRingSizeFields(
     await card(String(a.cardId)), (a.size as string | null) ?? null, a.status as 'Unconfirmed' | 'Customer submitted' | 'Confirmed'),
@@ -57,6 +58,11 @@ const OPERATIONS: Record<string, (a: Record<string, unknown>) => Promise<unknown
   'customer.send': async a => {
     const { deliverCustomerEmail } = await import('./customer-emails')
     return deliverCustomerEmail(a as Parameters<typeof deliverCustomerEmail>[0])
+  },
+  /** A customer's email reply: fetch it again and record it (one message per email, so safe to repeat). */
+  'inbound.process': async a => {
+    const { processInboundEmail } = await import('./inbound-email')
+    return processInboundEmail(String(a.emailId))
   },
   /** Re-check a card and add its Studio link if it qualifies. */
   'trello.studioLink': async a => {
