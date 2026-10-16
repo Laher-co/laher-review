@@ -36,6 +36,13 @@
       "when": 1792107663769,
       "tag": "0004_message_client_key",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792110693113,
+      "tag": "0005_studio_designers",
+      "breakpoints": true
     }
   ]
 }

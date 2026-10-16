@@ -9,7 +9,7 @@ import {
 export const staffRole        = pgEnum('staff_role', ['designer', 'va', 'admin', 'escalations', 'owner'])
 export const issueKind        = pgEnum('issue_kind', [
   'trello_move', 'trello_comment', 'trello_attachment', 'trello_label', 'trello_fields',
-  'email_send', 'email_bounce', 'webhook',
+  'email_send', 'email_bounce', 'webhook', 'trello_webhook',
 ])
 export const issueStatus      = pgEnum('issue_status', ['open', 'resolved', 'ignored'])
 export const jobStatus        = pgEnum('job_status', ['draft', 'in_review', 'changes_requested', 'approved', 'approved_size_needed', 'closed'])
@@ -30,6 +30,8 @@ export const staff = pgTable('staff', {
   name:      text('name').notNull().unique(),
   role:      staffRole('role').notNull().default('designer'),
   email:     text('email'),
+  // Designers on the new system: their new cards get an "Open in LAHER Studio" link
+  onStudio:  boolean('on_studio').notNull().default(false),
   active:    boolean('active').notNull().default(true),
   createdAt: createdAt(),
 })

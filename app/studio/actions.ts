@@ -16,6 +16,8 @@ import {
 } from '@/lib/trello'
 import { moveOutcome, retryIssue, setIssueStatus, tracked } from '@/lib/issues'
 import { jobPayload } from '@/lib/payload'
+import { cardDetails, createJobFromDetails, type CardPreview } from '@/lib/job-create'
+import { backfillDesigner, type LinkResult } from '@/lib/studio-links'
 import { answerWaiting } from '@/lib/waiting'
 import { extractEmail, descriptionSection, parseRingSize } from '@/lib/trello-parse'
 
@@ -45,61 +47,14 @@ export async function signOut() {
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 
-export type CardPreview = {
-  cardId: string
-  cardUrl: string
-  cardName: string
-  listName: string
-  customerName: string
-  customerEmail: string
-  designer: string | null
-  designerId: string | null
-  ringSize: string | null
-  ringSizeStatus: 'unconfirmed' | 'confirmed'
-  ringSizeNote: string | null
-  doNotEmail: boolean
-  existingJobId: string | null
-}
+export type { CardPreview } from '@/lib/job-create'
 
 /** Reads a Trello card so staff can check the details before creating a job. */
 export async function previewCard(ref: string): Promise<{ preview?: CardPreview; error?: string }> {
   await requireStaff()
   const card = await getCard(ref)
   if (!card) return { error: 'Couldn’t find that Trello card. Paste the card’s link from Trello.' }
-
-  const [{ list, funnel }, fields, [existing]] = await Promise.all([
-    cardFunnel(card),
-    readRingSizeFields(card),
-    db.select({ id: jobs.id }).from(jobs).where(eq(jobs.trelloCardId, card.id)),
-  ])
-
-  // Ring size: the app's custom fields win; otherwise read the description
-  const fromDesc = parseRingSize(card.desc)
-  const ringSize = fields.size ?? fromDesc.size
-  const ringSizeStatus = fields.statusText?.toLowerCase() === 'confirmed' || (!fields.statusText && ringSize && fromDesc.status === 'confirmed')
-    ? 'confirmed' : 'unconfirmed'
-
-  const designers = await db.select().from(staff).where(eq(staff.active, true))
-  const designer = funnel?.designer ?? null
-  const designerRow = designer ? designers.find(d => d.name.toLowerCase() === designer.toLowerCase()) : undefined
-
-  return {
-    preview: {
-      cardId:         card.id,
-      cardUrl:        card.shortUrl,
-      cardName:       card.name,
-      listName:       list.name,
-      customerName:   descriptionSection(card.desc, 'Name') ?? '',
-      customerEmail:  extractEmail(card.name, descriptionSection(card.desc, 'Contact Details'), card.desc) ?? '',
-      designer,
-      designerId:     designerRow?.id ?? null,
-      ringSize,
-      ringSizeStatus,
-      ringSizeNote:   fromDesc.note,
-      doNotEmail:     cardHasLabel(card, LABEL_DO_NOT_EMAIL),
-      existingJobId:  existing?.id ?? null,
-    },
-  }
+  return { preview: await cardDetails(card) }
 }
 
 export async function createJob(_: unknown, form: FormData): Promise<{ error?: string }> {
@@ -116,31 +71,10 @@ export async function createJob(_: unknown, form: FormData): Promise<{ error?: s
   if (!preview) return { error }
   if (preview.existingJobId) redirect(`/studio/jobs/${preview.existingJobId}`)
 
-  const [job] = await db.insert(jobs).values({
-    publicCode:     newPublicCode(),
-    trelloCardId:   preview.cardId,
-    trelloShortUrl: preview.cardUrl,
-    title:          preview.cardName,
-    customerName,
-    customerEmail,
-    designerId,
-    ringSize:       preview.ringSize,
-    ringSizeStatus: preview.ringSizeStatus,
-    createdBy:      session.staffId,
-  }).returning()
-
-  // Start Version One with Option A, ready for uploads
-  const [v] = await db.insert(versions).values({ jobId: job.id, number: 1 }).returning()
-  await db.insert(options).values({ versionId: v.id, label: 'A', sort: 0 })
-
-  // Mirror the ring size to the card's custom fields so Trello shows it too
-  await tracked('trello_fields', job.id, 'Set the Finger Size fields on the Trello card', {
-    type: 'trello.ringFields',
-    args: { cardId: preview.cardId, size: preview.ringSize, status: preview.ringSizeStatus === 'confirmed' ? 'Confirmed' : 'Unconfirmed' },
+  const jobId = await createJobFromDetails(preview, {
+    customerName, customerEmail, designerId, createdBy: session.staffId, via: 'new_job_form',
   })
-
-  await logEvent(job.id, session.staffId, 'job_created', { trelloCardId: preview.cardId })
-  redirect(`/studio/jobs/${job.id}`)
+  redirect(`/studio/jobs/${jobId}`)
 }
 
 // ── Versions & options ────────────────────────────────────────────────────────
@@ -439,4 +373,37 @@ export async function sendStaffReply(jobId: string, versionId: string | null, ra
   })
   revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath(`/r/${job.publicCode}`)
+}
+
+// ── Settings: designers on LAHER Studio ───────────────────────────────────────
+
+export type BackfillReport = { list: string | null; results: { card: string; result: LinkResult }[] }
+
+async function requireOwner() {
+  const session = await requireStaff()
+  const [me] = await db.select({ role: staff.role }).from(staff).where(eq(staff.id, session.staffId))
+  if (me?.role !== 'owner') throw new Error('Only Ryan can change which designers are on LAHER Studio.')
+  return session
+}
+
+/**
+ * Switches a designer onto (or off) the new system. Switching on runs the
+ * backfill: "Open in LAHER Studio" links on cards currently in their New
+ * Design Renders list only. Switching off adds no new links; existing ones stay.
+ */
+export async function setDesignerOnStudio(staffId: string, on: boolean): Promise<BackfillReport | null> {
+  const session = await requireOwner()
+  const [d] = await db.update(staff).set({ onStudio: on })
+    .where(and(eq(staff.id, staffId), eq(staff.role, 'designer'))).returning()
+  if (!d) throw new Error('Designer not found.')
+  await logEvent(null, session.staffId, on ? 'designer_enabled' : 'designer_disabled', { designer: d.name })
+  revalidatePath('/studio/settings')
+  return on ? backfillDesigner(d.name) : null
+}
+
+export async function runBackfill(staffId: string): Promise<BackfillReport> {
+  await requireOwner()
+  const [d] = await db.select().from(staff).where(eq(staff.id, staffId))
+  if (!d?.onStudio) throw new Error('Switch the designer on first.')
+  return backfillDesigner(d.name)
 }

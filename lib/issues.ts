@@ -53,6 +53,13 @@ const OPERATIONS: Record<string, (a: Record<string, unknown>) => Promise<unknown
     if (!ok) throw new Error(`Zapier responded with HTTP ${res.status}`)
   },
   'email.send': async a => sendEmail(a as unknown as Parameters<typeof sendEmail>[0]),
+  /** Re-check a card and add its Studio link if it qualifies. */
+  'trello.studioLink': async a => {
+    const { ensureStudioLink } = await import('./studio-links')
+    const r = await ensureStudioLink(String(a.cardId))
+    if (r.action === 'failed') throw new Error(r.error)
+    return r
+  },
 }
 
 async function runOperation(op: IssueOperation) {

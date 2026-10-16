@@ -85,3 +85,12 @@ export function extractEmail(...sources: (string | null | undefined)[]): string 
   }
   return null
 }
+
+/**
+ * True only when the WHOLE card name is one email address (spaces trimmed,
+ * any case). "john@example.com resize" or "Resize john@example.com" → false,
+ * so resize/alteration cards never get a Studio link.
+ */
+export function isEmailOnlyName(name: string): boolean {
+  return /^[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(name.trim())
+}

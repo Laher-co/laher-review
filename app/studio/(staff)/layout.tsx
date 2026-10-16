@@ -22,6 +22,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
               Issues
               {open > 0 && <span className="rounded-full bg-red-600 px-1.5 text-[11px] font-semibold leading-5 text-white">{open}</span>}
             </Link>
+            <Link href="/studio/settings" className="hidden rounded-md px-3 py-2 text-cocoa-light hover:bg-linen hover:text-cocoa sm:inline">Settings</Link>
             <Link href="/studio/new" className="rounded-md bg-cocoa px-3 py-2 text-ivory hover:bg-cocoa-dark">New job</Link>
           </nav>
           <form action={signOut} className="flex items-center gap-2 border-l border-sand pl-3">

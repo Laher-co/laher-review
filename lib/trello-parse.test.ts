@@ -87,3 +87,15 @@ describe('extractEmail', () => {
     expect(extractEmail('no email here')).toBeNull()
   })
 })
+
+import { isEmailOnlyName } from './trello-parse'
+
+describe('isEmailOnlyName', () => {
+  it.each([
+    'john@example.com', '  John@Example.COM  ', 'williamkneale95@gmail.com', 'first.last+ring@mail.co.uk',
+  ])('accepts %s', n => expect(isEmailOnlyName(n)).toBe(true))
+  it.each([
+    'john@example.com resize', 'john@example.com - alteration', 'Resize john@example.com',
+    'john@example.com, jane@example.com', 'Stock - Baguette Wedder', 'john@example', '@example.com', '',
+  ])('rejects %s', n => expect(isEmailOnlyName(n)).toBe(false))
+})

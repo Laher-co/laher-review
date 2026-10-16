@@ -19,7 +19,7 @@ export interface TrelloCustomField {
 }
 export interface TrelloCard {
   id: string; name: string; desc: string; idList: string; idBoard: string
-  shortUrl: string; labels: TrelloLabel[]
+  shortUrl: string; shortLink?: string; labels: TrelloLabel[]
   customFieldItems?: { idCustomField: string; value?: { text?: string }; idValue?: string }[]
 }
 
@@ -52,7 +52,7 @@ export async function getCard(ref: string): Promise<TrelloCard | null> {
   if (!id) return null
   try {
     return await trello<TrelloCard>('GET',
-      `/cards/${id}?fields=name,desc,idList,idBoard,shortUrl,labels&customFieldItems=true`)
+      `/cards/${id}?fields=name,desc,idList,idBoard,shortUrl,shortLink,labels&customFieldItems=true`)
   } catch (err) {
     if (err instanceof Error && /\((400|404)\)/.test(err.message)) return null
     throw err
@@ -63,6 +63,8 @@ export const getList        = (id: string)      => trello<TrelloList>('GET', `/l
 export const getBoardLists  = (boardId: string) => trello<TrelloList[]>('GET', `/boards/${boardId}/lists?filter=open&fields=name`)
 export const getBoardLabels = (boardId: string) => trello<TrelloLabel[]>('GET', `/boards/${boardId}/labels?limit=1000`)
 export const getBoardFields = (boardId: string) => trello<TrelloCustomField[]>('GET', `/boards/${boardId}/customFields`)
+export const getListCards   = (listId: string)  => trello<TrelloCard[]>('GET', `/lists/${listId}/cards?fields=name,idList,idBoard,shortUrl,shortLink`)
+export const getAttachments = (cardId: string)  => trello<{ id: string; name: string; url: string }[]>('GET', `/cards/${cardId}/attachments?fields=name,url`)
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 

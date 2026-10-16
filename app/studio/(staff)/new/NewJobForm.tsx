@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 import Link from 'next/link'
 import { createJob, previewCard, type CardPreview } from '../../actions'
@@ -19,8 +19,8 @@ function CreateButton() {
   )
 }
 
-export default function NewJobForm({ designers }: { designers: { id: string; name: string }[] }) {
-  const [cardRef, setCardRef] = useState('')
+export default function NewJobForm({ designers, initialCard = '' }: { designers: { id: string; name: string }[]; initialCard?: string }) {
+  const [cardRef, setCardRef] = useState(initialCard)
   const [preview, setPreview] = useState<CardPreview | null>(null)
   const [lookupError, setLookupError] = useState<string | null>(null)
   const [looking, startLookup] = useTransition()
@@ -35,6 +35,9 @@ export default function NewJobForm({ designers }: { designers: { id: string; nam
       else setPreview(res.preview ?? null)
     })
   }
+
+  // Arrived from a card's Studio link that needed checking: look it up straight away
+  useEffect(() => { if (initialCard) lookup() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="mt-8 space-y-6">
