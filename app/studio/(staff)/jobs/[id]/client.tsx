@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
-  customerRepliedByEmail, logFollowupCall, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
+  customerRepliedByEmail, logFollowupCall, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -551,6 +551,22 @@ export function RepliedByEmailButton({ jobId, notes }: { jobId: string; notes: {
         </ul>
       )}
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+/** Internal only: the customer asked for changes outside the portal (call, email, in person). */
+export function ChangesRequestedButton({ jobId }: { jobId: string }) {
+  const { pending, error, run } = useAction()
+  const [result, setResult] = useState<string | null>(null)
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button type="button" className={btnGhost} disabled={pending}
+        onClick={() => run(async () => setResult(await markChangesRequested(jobId)))}>
+        {pending && <Spinner />} Changes requested
+      </button>
+      {result && <p className="text-xs text-stone">{result}</p>}
+      {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
   )
 }

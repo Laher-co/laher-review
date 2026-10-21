@@ -13,7 +13,7 @@ import { getOptionContext, loadVersions, newPublicCode, reviewUrl, siteOrigin } 
 import { escapeHtml, staffEmailHtml, staffEmails } from '@/lib/email'
 import { optionLabel, versionTitle } from '@/lib/format'
 import {
-  cardFunnel, cardHasLabel, getCard, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP, readRingSizeFields, type MoveResult,
+  cardFunnel, cardHasLabel, getCard, LABEL_AWAITING_SIZE, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP, readRingSizeFields, type MoveResult,
 } from '@/lib/trello'
 import { moveOutcome, retryIssue, setIssueStatus, tracked } from '@/lib/issues'
 import { jobPayload } from '@/lib/payload'
@@ -312,19 +312,16 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
     { type: 'trello.ringFields', args: { cardId, size, status: 'Confirmed' } })
   await tracked('trello_label', job.id, 'Remove the “Finger Size TBC” label',
     { type: 'trello.removeLabel', args: { cardId, name: 'Finger Size TBC' } })
+  await tracked('trello_label', job.id, `Remove the “${LABEL_AWAITING_SIZE}” label`,
+    { type: 'trello.removeLabel', args: { cardId, name: LABEL_AWAITING_SIZE } })
   await tracked('trello_comment', job.id, 'Post the ring size confirmation comment', {
     type: 'trello.comment', args: { cardId, text: releasesApproval
-      ? `**RING SIZE CONFIRMED: ${size}** (by ${session.name})\n\nThe approved design can now go ahead: moving to Print Ready.`
+      ? `**RING SIZE CONFIRMED: ${size}** (by ${session.name})\n\nThe approved design can now go ahead.`
       : `Finger size confirmed: ${size} (by ${session.name})` },
   })
-  const trello: MoveResult | ReturnType<typeof moveOutcome> | null = releasesApproval
-    ? moveOutcome(await tracked('trello_move', job.id, 'Move the approved card to Print Ready (size now confirmed)',
-        { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
-    : null
-
   const [designer] = job.designerId
     ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
-  await logEvent(job.id, session.staffId, 'ring_size_confirmed', { size, releasesApproval, trello })
+  await logEvent(job.id, session.staffId, 'ring_size_confirmed', { size, releasesApproval })
   await emitWebhook(job.id, 'ring_size_confirmed', { ...jobPayload(job, designer?.name ?? null), actor: { type: 'staff', name: session.name } })
   revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath(`/r/${job.publicCode}`)
@@ -524,4 +521,20 @@ export async function customerRepliedByEmail(jobId: string, rawNote: string) {
   await logEvent(jobId, session.staffId, 'customer_replied_by_email', { note: note || null })
   revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath('/studio')
+}
+
+// ── Trello ────────────────────────────────────────────────────────────────────
+
+/** Internal "Changes requested": moves the card to its designer's Alterations list. */
+export async function markChangesRequested(jobId: string) {
+  const session = await requireStaff()
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
+  if (!job) throw new Error('Job not found.')
+  const trello = moveOutcome(await tracked('trello_move', jobId, `Move the card to Alterations (Changes requested, by ${session.name})`,
+    { type: 'trello.move', args: { cardId: job.trelloCardId, stage: 'Alterations' } }))
+  await logEvent(jobId, session.staffId, 'staff_changes_requested', { trello })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  return trello.moved
+    ? trello.from === trello.to ? `Already in “${trello.to}”.` : `Moved to “${trello.to}”.`
+    : `Not moved: ${trello.reason}`
 }

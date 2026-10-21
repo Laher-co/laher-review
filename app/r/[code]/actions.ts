@@ -17,6 +17,7 @@ import { versionTitle } from '@/lib/format'
 import { areaLabel, CHANGE_AREAS, decisionHeading } from '@/lib/feedback'
 import { moveOutcome, tracked } from '@/lib/issues'
 import { moveToAlterationsForCustomer } from '@/lib/customer-activity'
+import { LABEL_AWAITING_SIZE } from '@/lib/trello'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -58,7 +59,6 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
     type: 'trello.comment',
     args: { cardId, text: `Customer submitted their finger size: ${size}\nPlease confirm it in the studio: ${studioLink(job.id)}` },
   })
-  await moveToAlterationsForCustomer(job, 'Customer sent their ring size')
 
   await stopFollowups(job.id, ['design', 'size'], 'Customer sent their ring size')
   await openWaiting(job.id, 'ring_size')
@@ -176,7 +176,7 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   if (notes.length) blocks.push(notes.join('\n'))
   if (comments) blocks.push(`Comments: ${comments}`)
   if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (awaiting confirmation)`)
-  if (sizeOutstanding) blocks.push('Customer isn’t sure of their ring size. The card stays here until staff confirm a size in the studio.')
+  if (sizeOutstanding) blocks.push(`Customer isn’t sure of their ring size: moved to Print Ready with the “${LABEL_AWAITING_SIZE}” label. Confirm the size in the studio to clear it.`)
   if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
   blocks.push(`Studio: ${studioLink(job.id)}`)
   const cardId = job.trelloCardId
@@ -193,10 +193,12 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   }
   const trello = !approved
     ? await moveToAlterationsForCustomer(job, heading)
-    : sizeOutstanding
-      ? { moved: false as const, reason: 'Approved without a ring size: waiting for staff to confirm one', currentList: '' }
-      : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
-          { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
+    : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
+        { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
+  if (sizeOutstanding) {
+    await tracked('trello_label', job.id, `Add the “${LABEL_AWAITING_SIZE}” label`,
+      { type: 'trello.addLabel', args: { cardId, name: LABEL_AWAITING_SIZE, createColor: 'orange' } })
+  }
 
   await stopFollowups(job.id, ['design'], approved ? 'Customer approved' : 'Customer requested changes')
   if (sizeOutstanding) await startSizeFollowup(job.id)

@@ -79,27 +79,22 @@ describe('isEmailOnlyName', () => {
   ])('rejects %s', n => expect(isEmailOnlyName(n)).toBe(false))
 })
 
-describe('alterationsPlan (customer sent something)', () => {
+describe('alterationsPlan (customer sent something in the portal)', () => {
   const lists = [
     { id: 'h1', name: '4.1. Heather | New Design Renders' }, { id: 'h3', name: '4.3 Heather | Revision' },
     { id: 'h4', name: '4.4 Heather | Alterations' }, { id: 'h5', name: '4.5 Heather | Print Ready' },
-    { id: 't3', name: 'Tara | Alterations' }, { id: 'r', name: 'RESOURCES' },
+    { id: 't4', name: 'Tara | Alterations' }, { id: 'c', name: 'Casting' },
   ]
-  it('moves to Alterations in the card’s current funnel', () => {
-    expect(alterationsPlan([], '4.3 Heather | Revision', lists)).toMatchObject({ action: 'move', target: { id: 'h4' } })
-    expect(alterationsPlan([], '4.1. Heather | New Design Renders', lists)).toMatchObject({ action: 'move', target: { id: 'h4' } })
+  it('moves from Revision to Alterations in the same designer’s funnel', () => {
+    expect(alterationsPlan([], '4.3 Heather | Revision', lists)).toMatchObject({ action: 'move', from: '4.3 Heather | Revision', target: { id: 'h4' } })
   })
-  it('moves back from Print Ready', () => {
-    expect(alterationsPlan([], '4.5 Heather | Print Ready', lists)).toMatchObject({ action: 'move', from: '4.5 Heather | Print Ready', target: { id: 'h4' } })
-  })
-  it('does nothing when already in Alterations', () => {
-    expect(alterationsPlan([], '4.4 Heather | Alterations', lists).action).toBe('skip')
+  it('leaves every other list alone', () => {
+    for (const l of ['4.5 Heather | Print Ready', '4.4 Heather | Alterations', '4.1. Heather | New Design Renders', 'Casting', '2.0 Awaiting Printing']) {
+      expect(alterationsPlan([], l, lists).action).toBe('skip')
+    }
   })
   it('skips OLD SYSTEM cards, whatever the case', () => {
     expect(alterationsPlan(['Review App', 'Old System'], '4.3 Heather | Revision', lists)).toEqual({ action: 'skip', reason: 'Card has the “OLD SYSTEM” label' })
-  })
-  it('skips cards outside a designer funnel', () => {
-    expect(alterationsPlan([], 'RESOURCES', lists).action).toBe('skip')
   })
   it('reports a missing Alterations list for that designer', () => {
     expect(alterationsPlan([], 'Rehan | Revision', lists)).toEqual({ action: 'no_list', designer: 'Rehan' })

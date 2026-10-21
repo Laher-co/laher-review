@@ -5,6 +5,7 @@ import { alterationsPlan, findStageList, parseDesignerList, parseCardRef, type S
 // reordering them in Trello doesn't break anything.
 export const LABEL_REVIEW_APP   = 'Review App'
 export const LABEL_DO_NOT_EMAIL = 'Do not email'
+export const LABEL_AWAITING_SIZE = 'Awaiting Finger Size'
 export const FIELD_FINGER_SIZE        = 'Finger Size'
 export const FIELD_FINGER_SIZE_STATUS = 'Finger Size Status'
 
@@ -166,10 +167,14 @@ export async function moveCardToAlterations(cardId: string): Promise<Alterations
   return { moved: true, from: list.name, to: plan.target.name }
 }
 
-/** Adds a board label (by name) to the card if it isn't already there. */
-export async function ensureLabel(card: TrelloCard, name: string) {
+/**
+ * Adds a board label (by name) to the card if it isn't already there. With
+ * createColor, a label missing from the board is created first.
+ */
+export async function ensureLabel(card: TrelloCard, name: string, createColor?: string) {
   if (cardHasLabel(card, name)) return
-  const label = (await getBoardLabels(card.idBoard)).find(l => sameName(l.name, name))
+  let label = (await getBoardLabels(card.idBoard)).find(l => sameName(l.name, name))
+  if (!label && createColor) label = await trello<TrelloLabel>('POST', `/boards/${card.idBoard}/labels`, { name, color: createColor })
   if (!label) throw new Error(`Trello label "${name}" doesn't exist on the board.`)
   await trello('POST', `/cards/${card.id}/idLabels`, { value: label.id })
 }

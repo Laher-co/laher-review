@@ -85,10 +85,10 @@ export type AlterationsPlan<T> =
   | { action: 'no_list'; designer: string }
 
 /**
- * Where a card goes when the customer sends something (message, changes,
- * ring size): the Alterations list of the designer funnel it's in right now.
- * Cards labelled "OLD SYSTEM", outside a designer funnel, or already in
- * Alterations stay where they are.
+ * Where a card goes when the customer sends something in the portal (message,
+ * change request, drawing): the Alterations list of its designer funnel, but
+ * ONLY from Revision. Cards in any other list (Print Ready, Casting, ...) or
+ * labelled "OLD SYSTEM" stay where they are.
  */
 export function alterationsPlan<T extends { name: string }>(
   labels: string[], currentList: string, lists: T[],
@@ -96,7 +96,7 @@ export function alterationsPlan<T extends { name: string }>(
   if (labels.some(l => l.trim().toLowerCase() === 'old system')) return { action: 'skip', reason: 'Card has the “OLD SYSTEM” label' }
   const funnel = parseDesignerList(currentList)
   if (!funnel) return { action: 'skip', reason: `Card isn’t in a designer list (“${currentList}”)` }
-  if (funnel.stage === 'Alterations') return { action: 'skip', reason: `Already in “${currentList}”` }
+  if (funnel.stage !== 'Revision') return { action: 'skip', reason: `Only cards in Revision move; this one is in “${currentList}”` }
   const target = findStageList(lists, funnel.designer, 'Alterations')
   return target ? { action: 'move', from: currentList, target } : { action: 'no_list', designer: funnel.designer }
 }

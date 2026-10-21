@@ -36,7 +36,7 @@ const OPERATIONS: Record<string, (a: Record<string, unknown>) => Promise<unknown
   'trello.toAlterations': async a => moveCardToAlterations(String(a.cardId)),
   'trello.comment':     async a => addComment(String(a.cardId), String(a.text)),
   'trello.attach':      async a => attachUrl(String(a.cardId), String(a.url), String(a.name)),
-  'trello.addLabel':    async a => ensureLabel(await card(String(a.cardId)), String(a.name)),
+  'trello.addLabel':    async a => ensureLabel(await card(String(a.cardId)), String(a.name), a.createColor ? String(a.createColor) : undefined),
   'trello.removeLabel': async a => removeLabel(await card(String(a.cardId)), String(a.name)),
   'trello.ringFields':  async a => writeRingSizeFields(
     await card(String(a.cardId)), (a.size as string | null) ?? null, a.status as 'Unconfirmed' | 'Customer submitted' | 'Confirmed'),
