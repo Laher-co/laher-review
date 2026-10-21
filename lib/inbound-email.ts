@@ -4,7 +4,6 @@ import { put } from '@vercel/blob'
 import { db, jobs, staff, type MessageAttachment } from './db'
 import { logEvent } from './events'
 import { recordCustomerMessage } from './customer-message'
-import { moveToAlterationsForCustomer } from './customer-activity'
 import { htmlToText, isAutoReply, stripQuotedReply, tokenFromAddress } from './email-reply'
 
 const resend = async <T>(path: string): Promise<T> => {
@@ -59,7 +58,5 @@ export async function processInboundEmail(emailId: string) {
     version: null, body: body || (attachments.length ? '' : '(empty reply)'), attachments,
     source: 'email', emailFrom: email.from, clientKey: `email:${emailId}`,
   })
-  if (!msg) return { action: 'duplicate' }
-  await moveToAlterationsForCustomer(row.job, 'Customer replied by email')
-  return { action: 'recorded', messageId: msg.id }
+  return msg ? { action: 'recorded', messageId: msg.id } : { action: 'duplicate' }
 }
