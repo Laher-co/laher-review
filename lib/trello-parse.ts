@@ -78,3 +78,25 @@ export function extractEmail(...sources: (string | null | undefined)[]): string 
 export function isEmailOnlyName(name: string): boolean {
   return /^[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(name.trim())
 }
+
+export type AlterationsPlan<T> =
+  | { action: 'move'; from: string; target: T }
+  | { action: 'skip'; reason: string }
+  | { action: 'no_list'; designer: string }
+
+/**
+ * Where a card goes when the customer sends something in the portal (message,
+ * change request, drawing): the Alterations list of its designer funnel, but
+ * ONLY from Revision. Cards in any other list (Print Ready, Casting, ...) or
+ * labelled "OLD SYSTEM" stay where they are.
+ */
+export function alterationsPlan<T extends { name: string }>(
+  labels: string[], currentList: string, lists: T[],
+): AlterationsPlan<T> {
+  if (labels.some(l => l.trim().toLowerCase() === 'old system')) return { action: 'skip', reason: 'Card has the “OLD SYSTEM” label' }
+  const funnel = parseDesignerList(currentList)
+  if (!funnel) return { action: 'skip', reason: `Card isn’t in a designer list (“${currentList}”)` }
+  if (funnel.stage !== 'Revision') return { action: 'skip', reason: `Only cards in Revision move; this one is in “${currentList}”` }
+  const target = findStageList(lists, funnel.designer, 'Alterations')
+  return target ? { action: 'move', from: currentList, target } : { action: 'no_list', designer: funnel.designer }
+}

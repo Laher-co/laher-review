@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  parseDesignerList, findStageList, descriptionSection, parseCardRef, extractEmail,
+  parseDesignerList, findStageList, descriptionSection, parseCardRef, extractEmail, alterationsPlan,
 } from './trello-parse'
 
 describe('parseDesignerList', () => {
@@ -77,4 +77,26 @@ describe('isEmailOnlyName', () => {
     'john@example.com resize', 'john@example.com - alteration', 'Resize john@example.com',
     'john@example.com, jane@example.com', 'Stock - Baguette Wedder', 'john@example', '@example.com', '',
   ])('rejects %s', n => expect(isEmailOnlyName(n)).toBe(false))
+})
+
+describe('alterationsPlan (customer sent something in the portal)', () => {
+  const lists = [
+    { id: 'h1', name: '4.1. Heather | New Design Renders' }, { id: 'h3', name: '4.3 Heather | Revision' },
+    { id: 'h4', name: '4.4 Heather | Alterations' }, { id: 'h5', name: '4.5 Heather | Print Ready' },
+    { id: 't4', name: 'Tara | Alterations' }, { id: 'c', name: 'Casting' },
+  ]
+  it('moves from Revision to Alterations in the same designer’s funnel', () => {
+    expect(alterationsPlan([], '4.3 Heather | Revision', lists)).toMatchObject({ action: 'move', from: '4.3 Heather | Revision', target: { id: 'h4' } })
+  })
+  it('leaves every other list alone', () => {
+    for (const l of ['4.5 Heather | Print Ready', '4.4 Heather | Alterations', '4.1. Heather | New Design Renders', 'Casting', '2.0 Awaiting Printing']) {
+      expect(alterationsPlan([], l, lists).action).toBe('skip')
+    }
+  })
+  it('skips OLD SYSTEM cards, whatever the case', () => {
+    expect(alterationsPlan(['Review App', 'Old System'], '4.3 Heather | Revision', lists)).toEqual({ action: 'skip', reason: 'Card has the “OLD SYSTEM” label' })
+  })
+  it('reports a missing Alterations list for that designer', () => {
+    expect(alterationsPlan([], 'Rehan | Revision', lists)).toEqual({ action: 'no_list', designer: 'Rehan' })
+  })
 })

@@ -1,10 +1,11 @@
 import 'server-only'
-import { findStageList, parseDesignerList, parseCardRef, type Stage } from './trello-parse'
+import { alterationsPlan, findStageList, parseDesignerList, parseCardRef, type Stage } from './trello-parse'
 
 // Labels and custom fields are found by name, so renaming colours or
 // reordering them in Trello doesn't break anything.
 export const LABEL_REVIEW_APP   = 'Review App'
 export const LABEL_DO_NOT_EMAIL = 'Do not email'
+export const LABEL_AWAITING_SIZE = 'Awaiting Finger Size'
 export const FIELD_FINGER_SIZE        = 'Finger Size'
 export const FIELD_FINGER_SIZE_STATUS = 'Finger Size Status'
 
@@ -146,10 +147,34 @@ export async function moveCardToStage(cardId: string, stage: Stage): Promise<Mov
   return { moved: true, from: list.name, to: target.name }
 }
 
-/** Adds a board label (by name) to the card if it isn't already there. */
-export async function ensureLabel(card: TrelloCard, name: string) {
+export type AlterationsResult =
+  | { moved: true; from: string; to: string }
+  | { moved: false; skipped: string; currentList: string }
+
+/**
+ * Customer sent something: move the card to the Alterations list of the
+ * designer funnel it's in now (read live). Only the list changes, never the
+ * name. Throws if Trello errors or the designer has no Alterations list.
+ */
+export async function moveCardToAlterations(cardId: string): Promise<AlterationsResult> {
+  const card = await getCard(cardId)
+  if (!card) throw new Error('Trello card not found')
+  const list = await getList(card.idList)
+  const plan = alterationsPlan(card.labels.map(l => l.name), list.name, await getBoardLists(card.idBoard))
+  if (plan.action === 'skip') return { moved: false, skipped: plan.reason, currentList: list.name }
+  if (plan.action === 'no_list') throw new Error(`No “${plan.designer} | Alterations” list found`)
+  await trello('PUT', `/cards/${card.id}`, { idList: plan.target.id, pos: 'top' })
+  return { moved: true, from: list.name, to: plan.target.name }
+}
+
+/**
+ * Adds a board label (by name) to the card if it isn't already there. With
+ * createColor, a label missing from the board is created first.
+ */
+export async function ensureLabel(card: TrelloCard, name: string, createColor?: string) {
   if (cardHasLabel(card, name)) return
-  const label = (await getBoardLabels(card.idBoard)).find(l => sameName(l.name, name))
+  let label = (await getBoardLabels(card.idBoard)).find(l => sameName(l.name, name))
+  if (!label && createColor) label = await trello<TrelloLabel>('POST', `/boards/${card.idBoard}/labels`, { name, color: createColor })
   if (!label) throw new Error(`Trello label "${name}" doesn't exist on the board.`)
   await trello('POST', `/cards/${card.id}/idLabels`, { value: label.id })
 }

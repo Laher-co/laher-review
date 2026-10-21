@@ -4,7 +4,7 @@ import { db, issues, jobs, webhookEvents, type IssueOperation } from './db'
 import { escapeHtml, sendEmail, staffEmailHtml, staffEmails } from './email'
 import { siteOrigin } from './jobs'
 import {
-  addComment, attachUrl, ensureLabel, getCard, moveCardToStage, removeLabel, writeRingSizeFields,
+  addComment, attachUrl, ensureLabel, getCard, moveCardToAlterations, moveCardToStage, removeLabel, writeRingSizeFields,
 } from './trello'
 import type { Stage } from './trello-parse'
 
@@ -32,9 +32,11 @@ const OPERATIONS: Record<string, (a: Record<string, unknown>) => Promise<unknown
     await ensureLabel(await card(String(a.cardId)), String(a.label))
     return OPERATIONS['trello.move'](a)
   },
+  /** Customer sent something: to Alterations in the card's current funnel (skips are not failures). */
+  'trello.toAlterations': async a => moveCardToAlterations(String(a.cardId)),
   'trello.comment':     async a => addComment(String(a.cardId), String(a.text)),
   'trello.attach':      async a => attachUrl(String(a.cardId), String(a.url), String(a.name)),
-  'trello.addLabel':    async a => ensureLabel(await card(String(a.cardId)), String(a.name)),
+  'trello.addLabel':    async a => ensureLabel(await card(String(a.cardId)), String(a.name), a.createColor ? String(a.createColor) : undefined),
   'trello.removeLabel': async a => removeLabel(await card(String(a.cardId)), String(a.name)),
   'trello.ringFields':  async a => writeRingSizeFields(
     await card(String(a.cardId)), (a.size as string | null) ?? null, a.status as 'Unconfirmed' | 'Customer submitted' | 'Confirmed'),

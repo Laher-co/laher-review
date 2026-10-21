@@ -5,7 +5,7 @@ import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
-import { CopyLink, DoNotEmailSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
@@ -78,12 +78,15 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             <h1 className="font-serif text-3xl text-cocoa-dark">{job.customerName}</h1>
             <p className="mt-1 text-sm text-stone">{job.customerEmail}</p>
           </div>
-          <DoNotEmailSwitch jobId={job.id} on={doNotEmail} />
+          <div className="flex flex-col items-end gap-2">
+            <DoNotEmailSwitch jobId={job.id} on={doNotEmail} />
+            <ChangesRequestedButton jobId={job.id} />
+          </div>
         </div>
         {job.status === 'approved_size_needed' && (
           <p className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <strong>Approved – size outstanding.</strong> The customer approved but isn’t sure of their ring size.
-            Confirming a size below moves the Trello card to Print Ready.
+            The Trello card is in Print Ready with the “Awaiting Finger Size” label; confirming a size below removes the label.
           </p>
         )}
         <RingSizeControl jobId={job.id} size={job.ringSize} status={job.ringSizeStatus}
@@ -192,11 +195,13 @@ export default async function JobPage({ params }: { params: { id: string } }) {
 
 type DecisionRow = typeof decisions.$inferSelect
 
-function TrelloLine({ t }: { t?: { moved: boolean; from?: string; to?: string; reason?: string } }) {
+function TrelloLine({ t }: { t?: { moved: boolean; skipped?: boolean; from?: string; to?: string; reason?: string } }) {
   if (!t) return null
   return (
-    <p className={`mt-1 text-xs ${t.moved ? 'text-stone' : 'font-medium text-amber-800'}`}>
-      {!t.moved
+    <p className={`mt-1 text-xs ${t.moved || t.skipped ? 'text-stone' : 'font-medium text-amber-800'}`}>
+      {t.skipped
+        ? `Trello card left where it is: ${t.reason}.`
+        : !t.moved
         ? `Trello card not moved: ${t.reason}. Please move it by hand.`
         : t.from === t.to ? `Trello card already in “${t.to}”.` : `Trello card moved to “${t.to}”.`}
     </p>
@@ -205,7 +210,7 @@ function TrelloLine({ t }: { t?: { moved: boolean; from?: string; to?: string; r
 
 function DecisionCard({ decision: d, options, versionNumber, trello }: {
   decision: DecisionRow; options: { id: string; label: string }[]; versionNumber: number
-  trello?: { moved: boolean; from?: string; to?: string; reason?: string }
+  trello?: { moved: boolean; skipped?: boolean; from?: string; to?: string; reason?: string }
 }) {
   const approved = d.decision === 'approved'
   const option = options.find(o => o.id === d.optionId)
