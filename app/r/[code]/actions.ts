@@ -16,6 +16,7 @@ import { siteOrigin } from '@/lib/jobs'
 import { versionTitle } from '@/lib/format'
 import { areaLabel, CHANGE_AREAS, decisionHeading } from '@/lib/feedback'
 import { moveOutcome, tracked } from '@/lib/issues'
+import { moveToAlterationsForCustomer } from '@/lib/customer-activity'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -57,6 +58,7 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
     type: 'trello.comment',
     args: { cardId, text: `Customer submitted their finger size: ${size}\nPlease confirm it in the studio: ${studioLink(job.id)}` },
   })
+  await moveToAlterationsForCustomer(job, 'Customer sent their ring size')
 
   await stopFollowups(job.id, ['design', 'size'], 'Customer sent their ring size')
   await openWaiting(job.id, 'ring_size')
@@ -189,11 +191,12 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
     await tracked('trello_fields', job.id, `Set the Finger Size fields to ${submittedSize} (Customer submitted)`,
       { type: 'trello.ringFields', args: { cardId, size: submittedSize, status: 'Customer submitted' } })
   }
-  const trello = sizeOutstanding
-    ? { moved: false as const, reason: 'Approved without a ring size: waiting for staff to confirm one', currentList: '' }
-    : moveOutcome(await tracked('trello_move', job.id,
-        `Move the card to ${approved ? 'Print Ready' : 'Alterations'} (${heading})`,
-        { type: 'trello.move', args: { cardId, stage: approved ? 'Print Ready' : 'Alterations' } }))
+  const trello = !approved
+    ? await moveToAlterationsForCustomer(job, heading)
+    : sizeOutstanding
+      ? { moved: false as const, reason: 'Approved without a ring size: waiting for staff to confirm one', currentList: '' }
+      : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
+          { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
 
   await stopFollowups(job.id, ['design'], approved ? 'Customer approved' : 'Customer requested changes')
   if (sizeOutstanding) await startSizeFollowup(job.id)
@@ -310,6 +313,7 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
     version: version ? { id: version.id, number: version.number } : null,
     body, annotations, source: 'page', clientKey: input.clientKey.slice(0, 64) || null,
   })
+  await moveToAlterationsForCustomer(job, version ? `Customer message on ${versionTitle(version.number)}` : 'Customer message')
   revalidatePath(`/r/${code}`)
   return { ok: true }
 }

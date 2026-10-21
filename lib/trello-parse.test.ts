@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  parseDesignerList, findStageList, descriptionSection, parseCardRef, extractEmail,
+  parseDesignerList, findStageList, descriptionSection, parseCardRef, extractEmail, alterationsPlan,
 } from './trello-parse'
 
 describe('parseDesignerList', () => {
@@ -77,4 +77,31 @@ describe('isEmailOnlyName', () => {
     'john@example.com resize', 'john@example.com - alteration', 'Resize john@example.com',
     'john@example.com, jane@example.com', 'Stock - Baguette Wedder', 'john@example', '@example.com', '',
   ])('rejects %s', n => expect(isEmailOnlyName(n)).toBe(false))
+})
+
+describe('alterationsPlan (customer sent something)', () => {
+  const lists = [
+    { id: 'h1', name: '4.1. Heather | New Design Renders' }, { id: 'h3', name: '4.3 Heather | Revision' },
+    { id: 'h4', name: '4.4 Heather | Alterations' }, { id: 'h5', name: '4.5 Heather | Print Ready' },
+    { id: 't3', name: 'Tara | Alterations' }, { id: 'r', name: 'RESOURCES' },
+  ]
+  it('moves to Alterations in the card’s current funnel', () => {
+    expect(alterationsPlan([], '4.3 Heather | Revision', lists)).toMatchObject({ action: 'move', target: { id: 'h4' } })
+    expect(alterationsPlan([], '4.1. Heather | New Design Renders', lists)).toMatchObject({ action: 'move', target: { id: 'h4' } })
+  })
+  it('moves back from Print Ready', () => {
+    expect(alterationsPlan([], '4.5 Heather | Print Ready', lists)).toMatchObject({ action: 'move', from: '4.5 Heather | Print Ready', target: { id: 'h4' } })
+  })
+  it('does nothing when already in Alterations', () => {
+    expect(alterationsPlan([], '4.4 Heather | Alterations', lists).action).toBe('skip')
+  })
+  it('skips OLD SYSTEM cards, whatever the case', () => {
+    expect(alterationsPlan(['Review App', 'Old System'], '4.3 Heather | Revision', lists)).toEqual({ action: 'skip', reason: 'Card has the “OLD SYSTEM” label' })
+  })
+  it('skips cards outside a designer funnel', () => {
+    expect(alterationsPlan([], 'RESOURCES', lists).action).toBe('skip')
+  })
+  it('reports a missing Alterations list for that designer', () => {
+    expect(alterationsPlan([], 'Rehan | Revision', lists)).toEqual({ action: 'no_list', designer: 'Rehan' })
+  })
 })
