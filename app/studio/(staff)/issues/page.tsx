@@ -9,7 +9,7 @@ export const metadata = { title: 'Issues — LAHER Studio' }
 
 const KIND_LABEL: Record<string, string> = {
   trello_move: 'Trello move', trello_comment: 'Trello comment', trello_attachment: 'Trello attachment',
-  trello_label: 'Trello label', trello_fields: 'Trello fields', email_send: 'Email', email_bounce: 'Email bounced',
+  trello_label: 'Trello label', trello_fields: 'Trello fields', trello_list: 'Trello list', email_send: 'Email', email_bounce: 'Email bounced',
   webhook: 'Zapier webhook',
 }
 

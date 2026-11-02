@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm'
 import { db, staff } from '@/lib/db'
 import { requireStaff } from '@/lib/auth'
-import { DesignerToggle } from './client'
+import { AddDesigner, DesignerToggle } from './client'
 
 export const metadata = { title: 'Settings — LAHER Studio' }
 
@@ -30,6 +30,7 @@ export default async function SettingsPage() {
             </li>
           ))}
         </ul>
+        {isOwner && <AddDesigner />}
       </section>
 
       <section className="mt-6 rounded-2xl border border-sand bg-white/70 p-5 text-sm text-stone sm:p-6">

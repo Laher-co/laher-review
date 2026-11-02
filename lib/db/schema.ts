@@ -8,7 +8,7 @@ import {
 // ('admin' is legacy and unused; Postgres can't drop enum values)
 export const staffRole        = pgEnum('staff_role', ['designer', 'va', 'admin', 'escalations', 'owner'])
 export const issueKind        = pgEnum('issue_kind', [
-  'trello_move', 'trello_comment', 'trello_attachment', 'trello_label', 'trello_fields',
+  'trello_move', 'trello_comment', 'trello_attachment', 'trello_label', 'trello_fields', 'trello_list',
   'email_send', 'email_bounce', 'webhook', 'trello_webhook', 'email_inbound',
 ])
 export const issueStatus      = pgEnum('issue_status', ['open', 'resolved', 'ignored'])

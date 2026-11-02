@@ -69,6 +69,7 @@ export async function getMyMemberId() {
   return myMemberId
 }
 export const getBoardLists  = (boardId: string) => trello<TrelloList[]>('GET', `/boards/${boardId}/lists?filter=open&fields=name`)
+export const getBoardListsWithPos = (boardId: string) => trello<{ id: string; name: string; pos: number }[]>('GET', `/boards/${boardId}/lists?filter=open&fields=name,pos`)
 export const getBoardLabels = (boardId: string) => trello<TrelloLabel[]>('GET', `/boards/${boardId}/labels?limit=1000`)
 export const getBoardFields = (boardId: string) => trello<TrelloCustomField[]>('GET', `/boards/${boardId}/customFields`)
 export const getListCards   = (listId: string)  => trello<TrelloCard[]>('GET', `/lists/${listId}/cards?fields=name,idList,idBoard,shortUrl,shortLink`)
@@ -165,6 +166,14 @@ export async function moveCardToAlterations(cardId: string): Promise<Alterations
   if (plan.action === 'no_list') throw new Error(`No “${plan.designer} | Alterations” list found`)
   await trello('PUT', `/cards/${card.id}`, { idList: plan.target.id, pos: 'top' })
   return { moved: true, from: list.name, to: plan.target.name }
+}
+
+/** Creates an open list on the board, unless one with exactly this name is already there. */
+export async function ensureList(boardId: string, name: string, pos: number) {
+  const existing = (await getBoardListsWithPos(boardId)).find(l => l.name === name)
+  if (existing) return { id: existing.id, created: false }
+  const list = await trello<{ id: string }>('POST', '/lists', { name, idBoard: boardId, pos })
+  return { id: list.id, created: true }
 }
 
 /**
