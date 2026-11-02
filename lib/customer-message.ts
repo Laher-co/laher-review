@@ -16,6 +16,9 @@ import { versionTitle } from './format'
  * Trello and sends the v2 webhook. Used for messages on the page and for
  * replies by email. Returns null if the same message already arrived.
  */
+/** What the Trello comment says about message photos (the photos themselves stay in Studio). */
+export const photoNote = (n: number) => `(${n === 1 ? '1 photo' : `${n} photos`}: see LAHER Studio)`
+
 export async function recordCustomerMessage(job: typeof jobs.$inferSelect, designerName: string | null, m: {
   version: { id: string; number: number } | null
   body: string
@@ -38,16 +41,17 @@ export async function recordCustomerMessage(job: typeof jobs.$inferSelect, desig
   const blocks = [`**MESSAGE FROM CUSTOMER${how.toUpperCase()}: ${where}**`]
   if (m.body) blocks.push(m.body)
   if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
-  if (attachments.length) {
-    const label = attachments.every(a => a.contentType.startsWith('image/')) ? 'Photo' : 'Attachment'
-    blocks.push([`${label}${attachments.length > 1 ? 's' : ''}:`, ...attachments.map(a => a.url)].join('\n'))
-  }
+  // Photos stay in Studio and on the customer page: Trello only hears how many there are
+  const photos = attachments.filter(a => a.contentType.startsWith('image/'))
+  const otherFiles = attachments.filter(a => !a.contentType.startsWith('image/'))
+  if (photos.length) blocks.push(photoNote(photos.length))
+  if (otherFiles.length) blocks.push([`Attachment${otherFiles.length > 1 ? 's' : ''}:`, ...otherFiles.map(a => a.url)].join('\n'))
   blocks.push(`Reply in the studio: ${siteOrigin()}/studio/jobs/${job.id}`)
   await tracked('trello_comment', job.id, `Post the customer’s message${how} (${where}) on the Trello card`,
     { type: 'trello.comment', args: { cardId: job.trelloCardId, text: blocks.join('\n\n') } })
   const files = [
     ...annotations.map(x => ({ url: x.drawingUrl, kind: 'drawing' })),
-    ...attachments.map(x => ({ url: x.url, kind: x.contentType.startsWith('image/') ? 'photo' : 'attachment' })),
+    ...otherFiles.map(x => ({ url: x.url, kind: 'attachment' })),
   ]
   for (const [i, a] of files.entries()) {
     const name = `Message ${a.kind} ${i + 1} – ${where}`

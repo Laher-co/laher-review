@@ -21,6 +21,7 @@ import { cardDetails, createJobFromDetails, type CardPreview } from '@/lib/job-c
 import { backfillDesigner, ORDER_BOARD_ID, type LinkResult } from '@/lib/studio-links'
 import { cleanDesignerName, planDesignerLists } from '@/lib/designer-lists'
 import { checkedImages, saveMessageImage } from '@/lib/message-images'
+import { photoNote } from '@/lib/customer-message'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
@@ -382,7 +383,7 @@ export async function sendStaffReply(jobId: string, versionId: string | null, ra
   await tracked('trello_comment', jobId, `Post ${session.name}’s reply (${where}) on the Trello card`, {
     type: 'trello.comment',
     args: { cardId: job.trelloCardId, text: [`**STUDIO REPLY (${session.name}): ${where}**`, body,
-      images.length ? [`Photo${images.length > 1 ? 's' : ''}:`, ...images.map(i => i.url)].join('\n') : ''].filter(Boolean).join('\n\n') },
+      images.length ? photoNote(images.length) : ''].filter(Boolean).join('\n\n') },
   })
 
   const { common } = await emailContext(jobId)
