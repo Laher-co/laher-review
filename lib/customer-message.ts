@@ -38,11 +38,18 @@ export async function recordCustomerMessage(job: typeof jobs.$inferSelect, desig
   const blocks = [`**MESSAGE FROM CUSTOMER${how.toUpperCase()}: ${where}**`]
   if (m.body) blocks.push(m.body)
   if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
-  if (attachments.length) blocks.push([`Attachment${attachments.length > 1 ? 's' : ''}:`, ...attachments.map(a => a.url)].join('\n'))
+  if (attachments.length) {
+    const label = attachments.every(a => a.contentType.startsWith('image/')) ? 'Photo' : 'Attachment'
+    blocks.push([`${label}${attachments.length > 1 ? 's' : ''}:`, ...attachments.map(a => a.url)].join('\n'))
+  }
   blocks.push(`Reply in the studio: ${siteOrigin()}/studio/jobs/${job.id}`)
   await tracked('trello_comment', job.id, `Post the customer’s message${how} (${where}) on the Trello card`,
     { type: 'trello.comment', args: { cardId: job.trelloCardId, text: blocks.join('\n\n') } })
-  for (const [i, a] of [...annotations.map(x => ({ url: x.drawingUrl, kind: 'drawing' })), ...attachments.map(x => ({ url: x.url, kind: 'attachment' }))].entries()) {
+  const files = [
+    ...annotations.map(x => ({ url: x.drawingUrl, kind: 'drawing' })),
+    ...attachments.map(x => ({ url: x.url, kind: x.contentType.startsWith('image/') ? 'photo' : 'attachment' })),
+  ]
+  for (const [i, a] of files.entries()) {
     const name = `Message ${a.kind} ${i + 1} – ${where}`
     await tracked('trello_attachment', job.id, `Attach ${name} to the Trello card`,
       { type: 'trello.attach', args: { cardId: job.trelloCardId, url: a.url, name } })
@@ -52,9 +59,9 @@ export async function recordCustomerMessage(job: typeof jobs.$inferSelect, desig
   await openWaiting(job.id, 'message')
   const extras = [
     annotations.length ? `[${annotations.length} drawing${annotations.length > 1 ? 's' : ''} attached]` : '',
-    attachments.length ? `[${attachments.length} file${attachments.length > 1 ? 's' : ''} attached]` : '',
+    attachments.length ? `[${attachments.length} ${attachments.every(a => a.contentType.startsWith('image/')) ? 'photo' : 'file'}${attachments.length > 1 ? 's' : ''} attached]` : '',
   ]
-  await alertCustomerAction(job.id, `New message${how} (${where})`, [m.body, ...extras].filter(Boolean).join('\n'))
+  await alertCustomerAction(job.id, `New message${how} (${where})`, [m.body, ...extras].filter(Boolean).join('\n'), attachments)
   await logEvent(job.id, null, 'customer_message', { messageId: inserted[0].id, version: m.version?.number ?? null, source: m.source })
   await emitWebhook(job.id, 'message_created', {
     ...jobPayload(job, designerName),

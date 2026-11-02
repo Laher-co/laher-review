@@ -103,7 +103,7 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
         <section className="mt-16" id="message-the-studio">
           <MessageThread code={job.publicCode} versionId={null} renders={[]} messages={thread(null)}
             heading="Have another thought? Message the studio"
-            intro={`Questions, ideas or anything else. ${designer} and the studio team will reply here.`}
+            intro={`Questions, ideas or anything else, and you can add photos too. ${designer} and the studio team will reply here.`}
             placeholder="Write a message to the studio…" />
         </section>
       </main>

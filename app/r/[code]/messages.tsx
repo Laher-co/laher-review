@@ -7,7 +7,8 @@ import { renderDrawingJpeg, type Stroke } from '@/components/DrawingCanvas'
 import LightboxThumbs from '@/components/LightboxThumbs'
 import { Spinner } from '@/components/brand'
 import { DrawEditor, Sheet } from './client'
-import { sendCustomerMessage, uploadAnnotation } from './actions'
+import { sendCustomerMessage, uploadAnnotation, uploadMessageImage } from './actions'
+import { AddPhotosButton, PhotoTray, usePhotoAttachments } from '@/components/PhotoAttach'
 
 export type ThreadMessage = {
   id: string
@@ -46,6 +47,9 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
   const [editing, setEditing] = useState<Render | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
+  // Photos: on the general thread ("Message the studio")
+  const allowPhotos = versionId === null
+  const photos = usePhotoAttachments()
 
   // Restore a saved draft after mount (localStorage isn't available on the server)
   useEffect(() => {
@@ -70,7 +74,7 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
   }, [draft.drawings])
 
   const drawingCount = Object.keys(draft.drawings).length
-  const canSend = (draft.body.trim() || drawingCount > 0) && !pending
+  const canSend = (draft.body.trim() || drawingCount > 0 || photos.photos.length > 0) && !pending && photos.preparing === 0
 
   function send() {
     setError(null)
@@ -89,10 +93,12 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
           if ('error' in up) throw new Error(up.error)
           annotations.push({ renderId, drawingUrl: up.drawingUrl, strokes })
         }
-        const res = await sendCustomerMessage(code, { clientKey: draft.clientKey, versionId, body: draft.body, annotations })
+        const images = await photos.uploadAll(form => uploadMessageImage(code, form))
+        const res = await sendCustomerMessage(code, { clientKey: draft.clientKey, versionId, body: draft.body, annotations, images })
         if (!res.ok) throw new Error(res.error)
         setDraft({ body: '', drawings: {}, clientKey: newKey() })
         setPreviews({})
+        photos.clear()
         router.refresh()
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Your message didn’t send. Please try again.')
@@ -134,7 +140,8 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
         </ol>
       )}
 
-      <div className="mt-4">
+      <div className={`mt-4 rounded-xl ${photos.dragging ? 'outline-dashed outline-2 outline-offset-4 outline-cocoa' : ''}`}
+        {...(allowPhotos ? photos.dropProps : {})}>
         <textarea value={draft.body} rows={3} maxLength={4000} placeholder={placeholder}
           onChange={e => { const v = e.target.value; setDraft(d => ({ ...d, body: v })) }}
           className="w-full rounded-xl border border-sand bg-white px-3 py-3 text-base focus:border-cocoa focus:outline-none" />
@@ -155,8 +162,14 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
           </div>
         )}
 
+        {allowPhotos && <PhotoTray photos={photos.photos} preparing={photos.preparing} onRemove={photos.remove} />}
+        {photos.errors.map(e => <p key={e} role="alert" className="mt-2 text-sm text-red-700">{e}</p>)}
         {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {allowPhotos && (
+            <AddPhotosButton onFiles={photos.add} disabled={photos.full || pending}
+              className="rounded-xl border border-sand bg-white px-4 py-3 text-sm text-cocoa hover:bg-linen disabled:opacity-50" />
+          )}
           {renders.length > 0 && (
             <button type="button" onClick={() => setPicking(true)}
               className="rounded-xl border border-sand bg-white px-4 py-3 text-sm text-cocoa hover:bg-linen">

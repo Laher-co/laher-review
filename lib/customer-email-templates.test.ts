@@ -68,3 +68,12 @@ describe('reminders are gentle check-ins', () => {
     expect(new Set(reminders.map(e => e.subject)).size).toBe(reminders.length)
   })
 })
+
+describe('staff reply with photos', () => {
+  it('mentions the photos, and works with photos only', () => {
+    expect(staffReplied({ ...c, staffName: 'Jane', body: 'Here you go', photoCount: 2 }).text).toContain('Jane from the studio has replied to you and sent you 2 photos.')
+    const only = staffReplied({ ...c, staffName: 'Jane', body: '', photoCount: 1 })
+    expect(only.text).toContain('sent you a photo.')
+    expect(only.text).not.toContain('Jane wrote')
+  })
+})

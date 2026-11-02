@@ -5,12 +5,13 @@ import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
-  customerRepliedByEmail, logFollowupCall, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
+  customerRepliedByEmail, logFollowupCall, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
 import { Badge, Spinner } from '@/components/brand'
 import Lightbox from '@/components/Lightbox'
+import { AddPhotosButton, PhotoTray, usePhotoAttachments } from '@/components/PhotoAttach'
 import { RING_SIZE_STATUS_LABEL } from '@/lib/feedback'
 
 const btn = 'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm transition-colors disabled:opacity-50'
@@ -335,7 +336,8 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
 }) {
   const { pending, error, run } = useAction()
   const [body, setBody] = useState('')
-  const [viewing, setViewing] = useState<{ urls: string[]; i: number } | null>(null)
+  const [viewing, setViewing] = useState<{ urls: string[]; i: number; caption?: string } | null>(null)
+  const photos = usePhotoAttachments()
   const last = messages[messages.length - 1]
   const awaitingReply = last?.author === 'customer'
 
@@ -366,14 +368,20 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
                     ))}
                   </div>
                 )}
-                {m.attachments.length > 0 && (
+                {m.attachments.some(a => a.isImage) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {m.attachments.filter(a => a.isImage).map((a, i, imgs) => (
+                      <button key={a.url} type="button" onClick={() => setViewing({ urls: imgs.map(x => x.url), i, caption: 'Photo' })}
+                        className="relative h-16 w-16 overflow-hidden rounded-lg border border-sand bg-white">
+                        <Image src={a.url} alt={a.name} fill sizes="64px" className="object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {m.attachments.some(a => !a.isImage) && (
                   <ul className="mt-2 space-y-1 text-sm">
-                    {m.attachments.map(a => (
-                      <li key={a.url}>
-                        <a href={a.url} target="_blank" rel="noreferrer" className="text-cocoa underline">
-                          {a.isImage ? '🖼 ' : '📎 '}{a.name}
-                        </a>
-                      </li>
+                    {m.attachments.filter(a => !a.isImage).map(a => (
+                      <li key={a.url}><a href={a.url} target="_blank" rel="noreferrer" className="underline">📎 {a.name}</a></li>
                     ))}
                   </ul>
                 )}
@@ -382,20 +390,29 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
           )
         })}
       </ol>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-        <textarea value={body} onChange={e => setBody(e.target.value)} rows={2} maxLength={4000}
-          placeholder={`Reply to ${customerName.split(' ')[0]}…`}
-          className="flex-1 rounded-lg border border-sand bg-white px-3 py-2.5 text-base focus:border-cocoa focus:outline-none sm:text-sm" />
-        <button className={btnPrimary} disabled={pending || !body.trim()}
-          onClick={() => run(async () => { await sendStaffReply(jobId, versionId, body); setBody('') })}>
-          {pending && <Spinner />} Send reply
-        </button>
+      <div className={`mt-3 rounded-lg ${photos.dragging ? 'outline-dashed outline-2 outline-offset-4 outline-cocoa' : ''}`} {...photos.dropProps}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <textarea value={body} onChange={e => setBody(e.target.value)} rows={2} maxLength={4000}
+            placeholder={`Reply to ${customerName.split(' ')[0]}…`}
+            className="flex-1 rounded-lg border border-sand bg-white px-3 py-2.5 text-base focus:border-cocoa focus:outline-none sm:text-sm" />
+          <AddPhotosButton onFiles={photos.add} disabled={photos.full || pending} className={btnGhost} />
+          <button className={btnPrimary} disabled={pending || photos.preparing > 0 || (!body.trim() && !photos.photos.length)}
+            onClick={() => run(async () => {
+              const images = await photos.uploadAll(form => uploadStaffImage(jobId, form))
+              await sendStaffReply(jobId, versionId, body, images)
+              setBody(''); photos.clear()
+            })}>
+            {pending && <Spinner />} Send reply
+          </button>
+        </div>
+        <PhotoTray photos={photos.photos} preparing={photos.preparing} onRemove={photos.remove} />
+        {photos.errors.map(e => <p key={e} role="alert" className="mt-2 text-sm text-red-700">{e}</p>)}
       </div>
       <p className="mt-1.5 text-xs text-stone">The customer sees your reply on their design page and gets an email (unless “Do not email” is on).</p>
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       {viewing && (
         <Lightbox start={viewing.i} onClose={() => setViewing(null)}
-          images={viewing.urls.map((u, i) => ({ url: u, alt: `Drawing ${i + 1}`, caption: 'Customer drawing' }))} />
+          images={viewing.urls.map((u, i) => ({ url: u, alt: `${viewing.caption ?? 'Drawing'} ${i + 1}`, caption: viewing.caption ?? 'Customer drawing' }))} />
       )}
     </div>
   )
