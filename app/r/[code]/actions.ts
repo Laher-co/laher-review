@@ -17,6 +17,8 @@ import { versionTitle } from '@/lib/format'
 import { areaLabel, CHANGE_AREAS, decisionHeading } from '@/lib/feedback'
 import { moveOutcome, tracked } from '@/lib/issues'
 import { moveToAlterationsForCustomer } from '@/lib/customer-activity'
+import { checkedImages, saveMessageImage } from '@/lib/message-images'
+import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { LABEL_AWAITING_SIZE } from '@/lib/trello'
 import type { Stroke } from '@/components/DrawingCanvas'
 
@@ -290,6 +292,13 @@ export type MessageInput = {
   versionId: string | null        // null = the general "message the studio" thread
   body: string
   annotations: AnnotationInput[]  // only on a version's thread
+  images?: UploadedPhoto[]        // from uploadMessageImage, up to 5
+}
+
+/** One photo for a message (shrunk in the browser first). Called once per photo before sending. */
+export async function uploadMessageImage(code: string, form: FormData): Promise<UploadedPhoto | { error: string }> {
+  const { job } = await jobForCode(code)
+  return saveMessageImage(job.id, form.get('file'))
 }
 
 /**
@@ -304,7 +313,8 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
   const version = input.versionId ? await publishedVersion(job.id, input.versionId) : null
   if (input.versionId && !version) return { ok: false, error: 'That version isn’t available. Please refresh the page.' }
   const annotations = version ? await checkedAnnotations(job.id, version.id, input.annotations) : []
-  if (!body && annotations.length === 0) return { ok: false, error: 'Please write a message.' }
+  const images = checkedImages(job.id, input.images)
+  if (!body && annotations.length === 0 && images.length === 0) return { ok: false, error: 'Please write a message or add a photo.' }
 
   // Simple guard against a runaway script: plenty for a real customer
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(messages)
@@ -313,7 +323,7 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
 
   await recordCustomerMessage(job, designerName, {
     version: version ? { id: version.id, number: version.number } : null,
-    body, annotations, source: 'page', clientKey: input.clientKey.slice(0, 64) || null,
+    body, annotations, attachments: images, source: 'page', clientKey: input.clientKey.slice(0, 64) || null,
   })
   await moveToAlterationsForCustomer(job, version ? `Customer message on ${versionTitle(version.number)}` : 'Customer message')
   revalidatePath(`/r/${code}`)

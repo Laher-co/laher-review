@@ -1,6 +1,6 @@
 import 'server-only'
 import { and, eq, isNull } from 'drizzle-orm'
-import { db, jobs, staff, waiting } from './db'
+import { db, jobs, staff, waiting, type MessageAttachment } from './db'
 import { escapeHtml, staffEmailHtml, staffEmails } from './email'
 import { tracked } from './issues'
 import { siteOrigin } from './jobs'
@@ -14,7 +14,15 @@ const queueRecipients = () => staffEmails(['va', 'owner']) // Jane and hello@ (d
  * Emails the queue (Jane + hello@) about any customer action: message,
  * change request, approval or ring size. A failed send becomes an issue.
  */
-export async function alertCustomerAction(jobId: string, what: string, preview: string) {
+/** Photos as tappable thumbnails (other files as links), so staff can see them without opening Studio. */
+function filesHtml(files: MessageAttachment[]) {
+  if (!files.length) return ''
+  return `<p style="margin:0 0 14px">${files.map(f => f.contentType.startsWith('image/')
+    ? `<a href="${escapeHtml(f.url)}" style="display:inline-block;margin:0 6px 6px 0"><img src="${escapeHtml(f.url)}" alt="${escapeHtml(f.name)}" width="140" style="width:140px;height:auto;border-radius:8px;border:1px solid #E4D9CB"></a>`
+    : `<a href="${escapeHtml(f.url)}" style="color:#4A3022">📎 ${escapeHtml(f.name)}</a><br>`).join('')}</p>`
+}
+
+export async function alertCustomerAction(jobId: string, what: string, preview: string, files: MessageAttachment[] = []) {
   const [row] = await db.select({ job: jobs, designer: staff.name })
     .from(jobs).leftJoin(staff, eq(staff.id, jobs.designerId)).where(eq(jobs.id, jobId))
   if (!row) return
@@ -26,9 +34,10 @@ export async function alertCustomerAction(jobId: string, what: string, preview: 
     type: 'email.send',
     args: {
       to: await queueRecipients(), type: 'queue_alert', jobId: job.id, subject,
-      text: `${subject}\n\n${short}\n\nReply in the studio: ${link}`,
+      text: `${subject}\n\n${short}${files.length ? `\n\n${files.map(f => f.url).join('\n')}` : ''}\n\nReply in the studio: ${link}`,
       html: staffEmailHtml(escapeHtml(subject),
         `${short ? `<p style="white-space:pre-line;background:#F1EAE0;border-radius:8px;padding:12px 14px">${escapeHtml(short)}</p>` : ''}
+         ${filesHtml(files)}
          <p style="color:#8C7B6E">Please respond within 4 working hours.</p>`,
         { href: link, label: 'Open in LAHER Studio' }),
     },

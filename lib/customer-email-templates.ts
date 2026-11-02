@@ -102,13 +102,14 @@ export function versionReady(c: Common & { versionTitle: string; versionNumber: 
 
 // ── Staff replied ─────────────────────────────────────────────────────────────
 
-export function staffReplied(c: Common & { staffName: string; body: string }): EmailContent {
+export function staffReplied(c: Common & { staffName: string; body: string; photoCount?: number }): EmailContent {
+  const photos = c.photoCount ? ` and sent you ${c.photoCount === 1 ? 'a photo' : `${c.photoCount} photos`}` : ''
   return {
     subject: `A message from ${c.staffName} at LAHER`,
     ...layout(c, {
       heading: 'You have a new message',
-      paragraphs: [`${esc(c.staffName)} from the studio has replied to you.`],
-      quote: { label: `${c.staffName} wrote`, text: c.body.length > 500 ? `${c.body.slice(0, 500)}…` : c.body },
+      paragraphs: [`${esc(c.staffName)} from the studio has replied to you${photos}.`],
+      quote: c.body ? { label: `${c.staffName} wrote`, text: c.body.length > 500 ? `${c.body.slice(0, 500)}…` : c.body } : undefined,
       after: ['We’re always happy to help with anything at all.'],
       button: { label: 'Read your message' },
     }),

@@ -20,6 +20,8 @@ import { jobPayload } from '@/lib/payload'
 import { cardDetails, createJobFromDetails, type CardPreview } from '@/lib/job-create'
 import { backfillDesigner, ORDER_BOARD_ID, type LinkResult } from '@/lib/studio-links'
 import { cleanDesignerName, planDesignerLists } from '@/lib/designer-lists'
+import { checkedImages, saveMessageImage } from '@/lib/message-images'
+import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
 import { emailContext, sendCustomerEmail } from '@/lib/customer-emails'
@@ -346,10 +348,19 @@ export async function setIssueStatusAction(issueId: string, status: 'resolved' |
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 /** A staff reply on a version's thread or the general thread. Answers the job's queue item. */
-export async function sendStaffReply(jobId: string, versionId: string | null, rawBody: string) {
+/** One photo for a staff reply (shrunk in the browser first). */
+export async function uploadStaffImage(jobId: string, form: FormData): Promise<UploadedPhoto | { error: string }> {
+  await requireStaff()
+  const [job] = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.id, jobId))
+  if (!job) return { error: 'Job not found.' }
+  return saveMessageImage(job.id, form.get('file'))
+}
+
+export async function sendStaffReply(jobId: string, versionId: string | null, rawBody: string, rawImages: UploadedPhoto[] = []) {
   const session = await requireStaff()
   const body = rawBody.trim().slice(0, 4000)
-  if (!body) throw new Error('Write a reply first.')
+  const images = checkedImages(jobId, rawImages)
+  if (!body && !images.length) throw new Error('Write a reply or add a photo first.')
   const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
   if (!job) throw new Error('Job not found.')
   let version: typeof versions.$inferSelect | undefined
@@ -360,7 +371,7 @@ export async function sendStaffReply(jobId: string, versionId: string | null, ra
   }
 
   const [msg] = await db.insert(messages).values({
-    jobId, versionId: version?.id ?? null, author: 'staff', staffId: session.staffId, body,
+    jobId, versionId: version?.id ?? null, author: 'staff', staffId: session.staffId, body, attachments: images,
   }).returning()
   await db.update(jobs).set({ updatedAt: new Date() }).where(eq(jobs.id, jobId))
 
@@ -370,11 +381,12 @@ export async function sendStaffReply(jobId: string, versionId: string | null, ra
   const where = version ? versionTitle(version.number) : 'General'
   await tracked('trello_comment', jobId, `Post ${session.name}’s reply (${where}) on the Trello card`, {
     type: 'trello.comment',
-    args: { cardId: job.trelloCardId, text: `**STUDIO REPLY (${session.name}): ${where}**\n\n${body}` },
+    args: { cardId: job.trelloCardId, text: [`**STUDIO REPLY (${session.name}): ${where}**`, body,
+      images.length ? [`Photo${images.length > 1 ? 's' : ''}:`, ...images.map(i => i.url)].join('\n') : ''].filter(Boolean).join('\n\n') },
   })
 
   const { common } = await emailContext(jobId)
-  await sendCustomerEmail(jobId, 'staff_replied', staffReplied({ ...common, staffName: session.name, body }))
+  await sendCustomerEmail(jobId, 'staff_replied', staffReplied({ ...common, staffName: session.name, body, photoCount: images.length }))
 
   const [designer] = job.designerId ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
   await logEvent(jobId, session.staffId, 'staff_reply', { messageId: msg.id, version: version?.number ?? null })
@@ -384,7 +396,7 @@ export async function sendStaffReply(jobId: string, versionId: string | null, ra
       id: msg.id, author: 'staff', staffName: session.name,
       thread: version ? 'version' : 'general',
       version: version ? { number: version.number, title: versionTitle(version.number) } : null,
-      body, drawings: [],
+      body, drawings: [], attachments: images.map(i => ({ url: i.url, name: i.name })),
     },
     actor: { type: 'staff', name: session.name },
   })

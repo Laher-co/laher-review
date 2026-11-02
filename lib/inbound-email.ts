@@ -4,6 +4,7 @@ import { put } from '@vercel/blob'
 import { db, jobs, staff, type MessageAttachment } from './db'
 import { logEvent } from './events'
 import { recordCustomerMessage } from './customer-message'
+import { heicToJpeg } from './heic'
 import { htmlToText, isAutoReply, stripQuotedReply, tokenFromAddress } from './email-reply'
 
 const resend = async <T>(path: string): Promise<T> => {
@@ -49,9 +50,14 @@ export async function processInboundEmail(emailId: string) {
     if (a.size > 15 * 1024 * 1024) continue
     const file = await fetch(a.download_url)
     if (!file.ok) throw new Error(`Couldn’t download attachment ${a.filename}`)
-    const blob = await put(`email-attachments/${row.job.id}/${a.filename.replace(/[^\w.-]+/g, '-')}`, await file.arrayBuffer(),
-      { access: 'public', addRandomSuffix: true, contentType: a.content_type })
-    attachments.push({ url: blob.url, name: a.filename, contentType: a.content_type, size: a.size })
+    let data: Uint8Array = new Uint8Array(await file.arrayBuffer())
+    let name = a.filename, contentType = a.content_type
+    // iPhone photos (HEIC) become JPEG so every browser can show them
+    const jpeg = await heicToJpeg(data.buffer as ArrayBuffer).catch(() => null)
+    if (jpeg) { data = jpeg; name = name.replace(/\.(heic|heif)$/i, '') + '.jpg'; contentType = 'image/jpeg' }
+    const blob = await put(`email-attachments/${row.job.id}/${name.replace(/[^\w.-]+/g, '-')}`, Buffer.from(data),
+      { access: 'public', addRandomSuffix: true, contentType })
+    attachments.push({ url: blob.url, name, contentType, size: data.byteLength })
   }
 
   const msg = await recordCustomerMessage(row.job, row.designer, {
