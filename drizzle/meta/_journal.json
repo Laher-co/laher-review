@@ -71,6 +71,13 @@
       "when": 1793655354436,
       "tag": "0009_designer_lists",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793656154419,
+      "tag": "0010_trello_retries",
+      "breakpoints": true
     }
   ]
 }

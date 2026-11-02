@@ -39,7 +39,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: { sho
       {rows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-sand bg-white/50 px-6 py-14 text-center">
           <p className="font-serif text-xl text-cocoa-dark">{showClosed ? 'Nothing resolved yet' : 'All clear'}</p>
-          <p className="mt-2 text-sm text-stone">{showClosed ? '' : 'Nothing has failed. Failures appear here and are emailed straight away.'}</p>
+          <p className="mt-2 text-sm text-stone">{showClosed ? '' : 'Nothing has failed. Failures appear here and are emailed straight away (Trello outages after 3 automatic retries).'}</p>
         </div>
       ) : (
         <ul className="space-y-3">
@@ -57,9 +57,11 @@ export default async function IssuesPage({ searchParams }: { searchParams: { sho
               <p className="mt-2 text-xs text-stone">
                 {i.attempts} attempt{i.attempts === 1 ? '' : 's'} · last {formatSydney(i.lastAttemptAt)}
                 {i.alertedAt ? ' · alert emailed' : ' · alert email not sent'}
-                {i.status !== 'open' && ` · ${i.status} by ${resolvedBy ?? '—'}${i.resolvedAt ? `, ${formatSydney(i.resolvedAt)}` : ''}`}
+                {i.autoRetries > 0 && ` · retried automatically ${i.autoRetries}×`}
+                {i.status !== 'open' && ` · ${i.status} by ${resolvedBy ?? (i.resolvedAt ? 'the app' : '—')}${i.resolvedAt ? `, ${formatSydney(i.resolvedAt)}` : ''}`}
               </p>
-              <IssueActions id={i.id} status={i.status} canRetry={!!i.operation} />
+              {i.resolutionNote && <p className="mt-1 text-sm text-ink">{i.resolutionNote}</p>}
+              <IssueActions id={i.id} status={i.status === 'retrying' ? 'open' : i.status} canRetry={!!i.operation} />
             </li>
           ))}
         </ul>
