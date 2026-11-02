@@ -1,0 +1,1 @@
+ALTER TYPE "public"."issue_kind" ADD VALUE 'trello_list' BEFORE 'email_send';

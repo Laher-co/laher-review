@@ -13,12 +13,13 @@ import { getOptionContext, loadVersions, newPublicCode, reviewUrl, siteOrigin } 
 import { escapeHtml, staffEmailHtml, staffEmails } from '@/lib/email'
 import { optionLabel, versionTitle } from '@/lib/format'
 import {
-  cardFunnel, cardHasLabel, getCard, LABEL_AWAITING_SIZE, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP, readRingSizeFields, type MoveResult,
+  cardFunnel, cardHasLabel, getBoardListsWithPos, getCard, LABEL_AWAITING_SIZE, LABEL_DO_NOT_EMAIL, LABEL_REVIEW_APP, readRingSizeFields, type MoveResult,
 } from '@/lib/trello'
-import { moveOutcome, retryIssue, setIssueStatus, tracked } from '@/lib/issues'
+import { moveOutcome, recordIssue, retryIssue, setIssueStatus, tracked } from '@/lib/issues'
 import { jobPayload } from '@/lib/payload'
 import { cardDetails, createJobFromDetails, type CardPreview } from '@/lib/job-create'
-import { backfillDesigner, type LinkResult } from '@/lib/studio-links'
+import { backfillDesigner, ORDER_BOARD_ID, type LinkResult } from '@/lib/studio-links'
+import { cleanDesignerName, planDesignerLists } from '@/lib/designer-lists'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
 import { emailContext, sendCustomerEmail } from '@/lib/customer-emails'
@@ -398,7 +399,7 @@ export type BackfillReport = { list: string | null; results: { card: string; res
 async function requireOwner() {
   const session = await requireStaff()
   const [me] = await db.select({ role: staff.role }).from(staff).where(eq(staff.id, session.staffId))
-  if (me?.role !== 'owner') throw new Error('Only Ryan can change which designers are on LAHER Studio.')
+  if (me?.role !== 'owner') throw new Error('Only Ryan can change the designers.')
   return session
 }
 
@@ -422,6 +423,65 @@ export async function runBackfill(staffId: string): Promise<BackfillReport> {
   const [d] = await db.select().from(staff).where(eq(staff.id, staffId))
   if (!d?.onStudio) throw new Error('Switch the designer on first.')
   return backfillDesigner(d.name)
+}
+
+export type AddDesignerReport = {
+  name: string
+  staff: 'added' | 'restored'
+  lists: { stage: string; name: string; result: 'created' | 'existing' | 'failed'; error?: string }[]
+}
+
+/**
+ * "Add designer" (Ryan only): their four funnel lists on the Order Management
+ * board (existing ones are reused, missing ones created as a numbered block
+ * after the last designer), plus a staff record so they're in the name picker
+ * and the Settings switch list, switched off. Trello failures go to Issues.
+ */
+export async function addDesigner(rawName: string): Promise<AddDesignerReport> {
+  const session = await requireOwner()
+  const cleaned = cleanDesignerName(rawName)
+  if ('error' in cleaned) throw new Error(cleaned.error)
+  const [clash] = await db.select().from(staff).where(sql`lower(${staff.name}) = ${cleaned.name.toLowerCase()}`)
+  if (clash?.active) throw new Error(`${clash.name} is already in the studio.`)
+  if (clash && clash.role !== 'designer') throw new Error(`${clash.name} is set up as ${clash.role}, not a designer.`)
+  const name = clash?.name ?? cleaned.name  // a returning designer keeps their saved name
+
+  let plan: ReturnType<typeof planDesignerLists>
+  try {
+    plan = planDesignerLists(await getBoardListsWithPos(ORDER_BOARD_ID), name)
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    await recordIssue({ kind: 'trello_list', jobId: null, summary: `Read the board’s lists (Add designer ${name})`, operation: null, error })
+    throw new Error(`Couldn’t read the Trello board, so nothing was added: ${error}`)
+  }
+  const lists: AddDesignerReport['lists'] = []
+  for (const l of plan.lists) {
+    if (l.action === 'existing') { lists.push({ stage: l.stage, name: l.name, result: 'existing' }); continue }
+    const t = await tracked<{ created: boolean }>('trello_list', null, `Create the Trello list “${l.name}” (Add designer ${name})`,
+      { type: 'trello.createList', args: { boardId: ORDER_BOARD_ID, name: l.name, pos: l.pos } })
+    lists.push(t.ok
+      ? { stage: l.stage, name: l.name, result: t.value.created ? 'created' : 'existing' }
+      : { stage: l.stage, name: l.name, result: 'failed', error: t.error })
+  }
+
+  // A designer removed earlier comes back with their old jobs; otherwise a new record. Always switched off.
+  const staffResult = clash ? 'restored' as const : 'added' as const
+  if (clash) await db.update(staff).set({ active: true, onStudio: false }).where(eq(staff.id, clash.id))
+  else await db.insert(staff).values({ name, role: 'designer', onStudio: false })
+
+  await logEvent(null, session.staffId, 'designer_added', { designer: name, staff: staffResult, lists })
+  revalidatePath('/studio/settings')
+  return { name, staff: staffResult, lists }
+}
+
+/** "Remove designer": hides them from the name picker and Settings. Never touches Trello lists or jobs. */
+export async function removeDesigner(staffId: string) {
+  const session = await requireOwner()
+  const [d] = await db.update(staff).set({ active: false, onStudio: false })
+    .where(and(eq(staff.id, staffId), eq(staff.role, 'designer'))).returning()
+  if (!d) throw new Error('Designer not found.')
+  await logEvent(null, session.staffId, 'designer_removed', { designer: d.name })
+  revalidatePath('/studio/settings')
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
