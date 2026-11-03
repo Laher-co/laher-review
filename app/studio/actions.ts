@@ -22,6 +22,8 @@ import { backfillDesigner, ORDER_BOARD_ID, type LinkResult } from '@/lib/studio-
 import { cleanDesignerName, planDesignerLists } from '@/lib/designer-lists'
 import { checkedImages, saveMessageImage } from '@/lib/message-images'
 import { photoNote } from '@/lib/customer-message'
+import { setStone } from '@/lib/stone-sync'
+import { gemstoneDetails } from '@/lib/stone'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
@@ -610,4 +612,16 @@ export async function markChangesRequested(jobId: string) {
   return trello.moved
     ? trello.from === trello.to ? `Already in “${trello.to}”.` : `Moved to “${trello.to}”.`
     : `Not moved: ${trello.reason}`
+}
+
+/** "Stone not secured" switch (any staff member). Also adds or removes STONE NEEDS SOURCING on the card. */
+export async function setStoneNotSecured(jobId: string, on: boolean) {
+  const session = await requireStaff()
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
+  if (!job) throw new Error('Job not found.')
+  // Remember the gemstone details as they are now, so a switch-off sticks until they change
+  const card = await getCard(job.trelloCardId).catch(() => null)
+  await setStone(job, on, { staffId: session.staffId, source: 'studio', detailsSeen: card ? gemstoneDetails(card.desc) : job.stoneDetailsSeen })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath('/studio')
 }

@@ -168,6 +168,18 @@ export async function moveCardToAlterations(cardId: string): Promise<Alterations
   return { moved: true, from: list.name, to: plan.target.name }
 }
 
+/** Moves the card to a shared (non-designer) list found by name, e.g. REQUIRES SOURCING. Only the list changes. */
+export async function moveCardToNamedList(cardId: string, listName: string): Promise<{ moved: true; from: string; to: string }> {
+  const card = await getCard(cardId)
+  if (!card) throw new Error('Trello card not found')
+  const list = await getList(card.idList)
+  if (sameName(list.name, listName)) return { moved: true, from: list.name, to: list.name }
+  const target = (await getBoardLists(card.idBoard)).find(l => sameName(l.name, listName))
+  if (!target) throw new Error(`No “${listName}” list found on the board`)
+  await trello('PUT', `/cards/${card.id}`, { idList: target.id, pos: 'top' })
+  return { moved: true, from: list.name, to: target.name }
+}
+
 /** Creates an open list on the board, unless one with exactly this name is already there. */
 export async function ensureList(boardId: string, name: string, pos: number) {
   const existing = (await getBoardListsWithPos(boardId)).find(l => l.name === name)

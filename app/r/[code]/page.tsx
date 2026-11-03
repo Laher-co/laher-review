@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
-import { asc, eq } from 'drizzle-orm'
-import { db, decisions, messages, staff } from '@/lib/db'
+import { and, asc, eq } from 'drizzle-orm'
+import { db, decisions, events, messages, staff } from '@/lib/db'
 import { getJobByCode, loadVersions, type FullVersion } from '@/lib/jobs'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel } from '@/lib/feedback'
@@ -20,12 +20,15 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
   const row = await getJobByCode(params.code)
   if (!row) notFound()
   const { job, designerName } = row
-  const [published, allDecisions, allMessages] = await Promise.all([
+  const [published, allDecisions, allMessages, releases] = await Promise.all([
     loadVersions(job.id, { publishedOnly: true }),
     db.select().from(decisions).where(eq(decisions.jobId, job.id)).orderBy(asc(decisions.createdAt)),
     db.select({ m: messages, staffName: staff.name }).from(messages)
       .leftJoin(staff, eq(staff.id, messages.staffId))
       .where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
+    // Staff moved the card out of REQUIRES SOURCING (approved, or back to alterations)
+    db.select({ details: events.details, createdAt: events.createdAt }).from(events)
+      .where(and(eq(events.jobId, job.id), eq(events.type, 'sourcing_released'))),
   ])
   const thread = (versionId: string | null): ThreadMessage[] => allMessages
     .filter(({ m }) => m.versionId === versionId)
@@ -41,6 +44,8 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
     publishedAt: published.map(v => v.publishedAt),
     decisions: allDecisions,
     ringSizeStatus: job.ringSizeStatus,
+    sourcing: job.sourcing,
+    overrides: releases.map(r => ({ stage: (r.details as { stage: 'approved' | 'alterations' }).stage, at: r.createdAt })),
   })
   const [latest, ...older] = published
 
@@ -117,6 +122,8 @@ const STAGE_STYLE: Record<Stage, string> = {
   alterations:          'bg-linen text-cocoa-dark',
   approved:             'bg-[#3F4A3A] text-ivory',
   approved_size_needed: 'bg-amber-800 text-white',
+  sourcing_approved:    'bg-[#3F4A3A] text-ivory',
+  sourcing_new_stone:   'bg-linen text-cocoa-dark',
 }
 
 function StageBanner({ stage, designer }: { stage: Stage; designer: string }) {

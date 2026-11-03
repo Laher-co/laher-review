@@ -8,6 +8,7 @@ import { cardFunnel, cardHasLabel, LABEL_DO_NOT_EMAIL, readRingSizeFields, ringS
 import { descriptionSection, extractEmail } from './trello-parse'
 import { resolveLatestRingSize, type RingStatus } from './ring-size'
 import { newReplyToken } from './email-reply'
+import { gemstoneDetails, hasCaratTbc, hasLabel, LABEL_OLD_SYSTEM, LABEL_STONE } from './stone'
 
 export type CardPreview = {
   cardId: string
@@ -22,6 +23,8 @@ export type CardPreview = {
   ringSizeStatus: RingStatus
   doNotEmail: boolean
   existingJobId: string | null
+  gemstoneDetails: string          // checked for "ct TBC" (Stone not secured)
+  stoneNotSecured: boolean         // ct TBC in the gemstone details, or the label is already on
 }
 
 /** Everything a job needs, read from the card as it is right now. */
@@ -54,6 +57,8 @@ export async function cardDetails(card: TrelloCard): Promise<CardPreview> {
     ringSizeStatus: ring.status,
     doNotEmail:    cardHasLabel(card, LABEL_DO_NOT_EMAIL),
     existingJobId: existing?.id ?? null,
+    gemstoneDetails: gemstoneDetails(card.desc),
+    stoneNotSecured: !hasLabel(card.labels, LABEL_OLD_SYSTEM) && (hasCaratTbc(gemstoneDetails(card.desc)) || hasLabel(card.labels, LABEL_STONE)),
   }
 }
 
@@ -78,6 +83,8 @@ export async function createJobFromDetails(d: CardPreview, input: {
     createdBy:      input.createdBy,
     doNotEmail:     d.doNotEmail,
     replyToken:     newReplyToken(),
+    stoneNotSecured: d.stoneNotSecured,
+    stoneDetailsSeen: d.gemstoneDetails,
   }).onConflictDoNothing({ target: jobs.trelloCardId }).returning()
   if (!job) {
     const [existing] = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.trelloCardId, d.cardId))
@@ -91,6 +98,11 @@ export async function createJobFromDetails(d: CardPreview, input: {
     type: 'trello.ringFields',
     args: { cardId: d.cardId, size: d.ringSize, status: FIELD_LABEL[d.ringSizeStatus] },
   })
+  if (d.stoneNotSecured) {
+    await tracked('trello_label', job.id, `Add the “${LABEL_STONE}” label`,
+      { type: 'trello.addLabel', args: { cardId: d.cardId, name: LABEL_STONE } })
+    await logEvent(job.id, null, 'stone_not_secured_on', { source: 'auto' })
+  }
   await logEvent(job.id, input.createdBy, 'job_created', { trelloCardId: d.cardId, via: input.via })
   return job.id
 }

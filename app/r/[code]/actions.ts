@@ -19,7 +19,10 @@ import { moveOutcome, tracked } from '@/lib/issues'
 import { moveToAlterationsForCustomer } from '@/lib/customer-activity'
 import { checkedImages, saveMessageImage } from '@/lib/message-images'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
-import { LABEL_AWAITING_SIZE } from '@/lib/trello'
+import { getCard, getList, LABEL_AWAITING_SIZE } from '@/lib/trello'
+import { hasLabel, LABEL_DESIGN_APPROVED, LABEL_OLD_SYSTEM, SOURCING_LIST } from '@/lib/stone'
+import { enterSourcing } from '@/lib/stone-sync'
+import { parseDesignerList } from '@/lib/trello-parse'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -39,6 +42,8 @@ async function publishedVersion(jobId: string, versionId: string) {
     .where(and(eq(versions.id, versionId), eq(versions.jobId, jobId), eq(versions.status, 'published')))
   return v ?? null
 }
+
+const getListName = (listId: string) => getList(listId).then(l => l.name).catch(() => null)
 
 const studioLink = (jobId: string) => `${siteOrigin()}/studio/jobs/${jobId}`
 
@@ -169,19 +174,27 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
     optionLabel: option.label, optionCount: versionOptions.length,
   })
 
+  // Approved while the stone isn't secured: to REQUIRES SOURCING instead of
+  // Print Ready (cards labelled OLD SYSTEM are left to the old process)
+  const cardId = job.trelloCardId
+  const card = approved ? await getCard(cardId).catch(() => null) : null
+  const oldSystem = card ? hasLabel(card.labels, LABEL_OLD_SYSTEM) : false
+  const toSourcing = approved && job.stoneNotSecured && !oldSystem
+  const cardDesigner = (card ? parseDesignerList((await getListName(card.idList)) ?? '')?.designer : null) ?? designerName ?? 'the designer'
+
   // Trello: bold header first, then the changes, then the drawings. The card
-  // moves to the same designer's Alterations / Print Ready list — except an
-  // approval without a ring size, which waits for staff to confirm one.
+  // moves to the same designer's Alterations / Print Ready list (or REQUIRES SOURCING).
   // Blocks separated by one blank line: header, changes, comments, size, drawings
-  const blocks = [`**${heading}**`]
+  const blocks = toSourcing
+    ? [`**APPROVED: ${versionTitle(version.number)}, Option ${option.label} – stone to be sourced.** Return to ${cardDesigner} | Print Ready once the stone is added. No further renders to the customer.`]
+    : [`**${heading}**`]
   const notes = changes.filter(c => c.note).map(c => `• **${areaLabel(c.area)}:** ${c.note}`)
   if (notes.length) blocks.push(notes.join('\n'))
   if (comments) blocks.push(`Comments: ${comments}`)
   if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (awaiting confirmation)`)
-  if (sizeOutstanding) blocks.push(`Customer isn’t sure of their ring size: moved to Print Ready with the “${LABEL_AWAITING_SIZE}” label. Confirm the size in the studio to clear it.`)
+  if (sizeOutstanding) blocks.push(`Customer isn’t sure of their ring size: ${toSourcing ? 'added' : 'moved to Print Ready with'} the “${LABEL_AWAITING_SIZE}” label. Confirm the size in the studio to clear it.`)
   if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
   blocks.push(`Studio: ${studioLink(job.id)}`)
-  const cardId = job.trelloCardId
   await tracked('trello_comment', job.id, `Post “${heading}” on the Trello card`,
     { type: 'trello.comment', args: { cardId, text: blocks.join('\n\n') } })
   for (const [i, a] of annotations.entries()) {
@@ -193,10 +206,18 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
     await tracked('trello_fields', job.id, `Set the Finger Size fields to ${submittedSize} (Customer submitted)`,
       { type: 'trello.ringFields', args: { cardId, size: submittedSize, status: 'Customer submitted' } })
   }
+  if (approved && !oldSystem) {
+    await tracked('trello_label', job.id, `Add the “${LABEL_DESIGN_APPROVED}” label`,
+      { type: 'trello.addLabel', args: { cardId, name: LABEL_DESIGN_APPROVED, createColor: 'green' } })
+  }
   const trello = !approved
     ? await moveToAlterationsForCustomer(job, heading)
-    : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
-        { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
+    : toSourcing
+      ? moveOutcome(await tracked('trello_move', job.id, `Move the card to ${SOURCING_LIST} (${heading}, stone not secured)`,
+          { type: 'trello.toList', args: { cardId, list: SOURCING_LIST } }))
+      : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
+          { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
+  if (toSourcing && trello.moved) await enterSourcing(job.id, 'approved', cardDesigner, 'app')
   if (sizeOutstanding) {
     await tracked('trello_label', job.id, `Add the “${LABEL_AWAITING_SIZE}” label`,
       { type: 'trello.addLabel', args: { cardId, name: LABEL_AWAITING_SIZE, createColor: 'orange' } })

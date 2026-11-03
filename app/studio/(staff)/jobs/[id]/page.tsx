@@ -5,7 +5,7 @@ import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
-import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
@@ -71,6 +71,22 @@ export default async function JobPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-8">
+      {/* Internal only: never shown to the customer */}
+      {job.stoneNotSecured && (
+        <div role="alert" className="rounded-2xl border-2 border-red-700 bg-red-700 px-5 py-5 text-white shadow-sm sm:px-6">
+          <p className="text-lg font-bold uppercase tracking-wide sm:text-2xl">Stone not secured</p>
+          <p className="mt-1 text-base sm:text-lg">Centre stone still to be sourced.</p>
+        </div>
+      )}
+      {job.sourcing && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-900">
+          <p className="font-semibold">Requires sourcing{job.sourcingDesigner ? ` · ${job.sourcingDesigner}` : designerName ? ` · ${designerName}` : ''}</p>
+          <p className="mt-1 text-sm">{job.sourcing === 'approved'
+            ? `Approved. Move the card back to ${job.sourcingDesigner ?? designerName ?? 'the designer'} | Print Ready once the stone is added.`
+            : `New stone needed. Move the card back to ${job.sourcingDesigner ?? designerName ?? 'the designer'} | Alterations once sourced for new renders.`}
+            {' '}Customer reminders are paused until then.</p>
+        </div>
+      )}
       {/* Job header */}
       <section className="rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -80,6 +96,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           </div>
           <div className="flex flex-col items-end gap-2">
             <DoNotEmailSwitch jobId={job.id} on={doNotEmail} />
+            <StoneSwitch jobId={job.id} on={job.stoneNotSecured} />
             <ChangesRequestedButton jobId={job.id} />
           </div>
         </div>

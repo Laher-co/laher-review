@@ -2,8 +2,12 @@ import { NextResponse } from 'next/server'
 import { recordIssue } from '@/lib/issues'
 import { ensureStudioLink, ORDER_BOARD_ID } from '@/lib/studio-links'
 import { syncRingSizeFromCard } from '@/lib/ring-size-sync'
-import { getMyMemberId, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
+import { getCard, getMyMemberId, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { syncDoNotEmail } from '@/lib/do-not-email'
+import { detectStone, handleSourcingMove, syncStoneFromLabel } from '@/lib/stone-sync'
+import { isSourcingList, LABEL_STONE } from '@/lib/stone'
+import { eq } from 'drizzle-orm'
+import { db, jobs } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +21,8 @@ type TrelloAction = {
   data: {
     customField?: { name?: string }
     card?: { id: string; name?: string }
-    listAfter?: { id: string }
+    listAfter?: { id: string; name?: string }
+    listBefore?: { id: string; name?: string }
     list?: { id: string }
     old?: { name?: string; idList?: string; desc?: string }
     board?: { id: string }
@@ -52,6 +57,34 @@ export async function POST(request: Request) {
     }
   }
 
+  // "STONE NEEDS SOURCING" label added or removed in Trello: update the "Stone not secured" switch
+  if ((a.type === 'addLabelToCard' || a.type === 'removeLabelFromCard') &&
+      a.data.label?.name?.trim().toLowerCase() === LABEL_STONE.toLowerCase()) {
+    try {
+      return NextResponse.json({ ok: true, result: await syncStoneFromLabel(a.data.card.id) })
+    } catch (err) {
+      await recordIssue({
+        kind: 'trello_webhook', jobId: null, operation: null, error: err instanceof Error ? err.message : String(err),
+        summary: `Update “Stone not secured” from card ${a.data.card.name ?? a.data.card.id}`,
+      })
+      return NextResponse.json({ ok: true, failed: true })
+    }
+  }
+
+  // A person moved a card into or out of REQUIRES SOURCING (the app's own moves are handled where they happen)
+  if (a.type === 'updateCard' && (isSourcingList(a.data.listAfter?.name) || isSourcingList(a.data.listBefore?.name))) {
+    try {
+      if (a.idMemberCreator && a.idMemberCreator === await getMyMemberId()) return NextResponse.json({ ok: true, ignored: 'own move' })
+      return NextResponse.json({ ok: true, result: await handleSourcingMove(a.data.card.id, a.data.listBefore?.name ?? '', a.data.listAfter?.name ?? '') })
+    } catch (err) {
+      await recordIssue({
+        kind: 'trello_webhook', jobId: null, operation: null, error: err instanceof Error ? err.message : String(err),
+        summary: `Handle a REQUIRES SOURCING move for card ${a.data.card.name ?? a.data.card.id}`,
+      })
+      return NextResponse.json({ ok: true, failed: true })
+    }
+  }
+
   // Finger size changed on the card: keep the job in step (latest change wins).
   // The app's own writes (as the Review App user) are ignored so it can't loop.
   const descEdit = a.type === 'updateCard' && typeof a.data.old?.desc === 'string'
@@ -59,6 +92,15 @@ export async function POST(request: Request) {
   if (descEdit || fieldEdit) {
     try {
       if (a.idMemberCreator && a.idMemberCreator === await getMyMemberId()) return NextResponse.json({ ok: true, ignored: 'own change' })
+      // Description edited: check the gemstone details for "ct TBC" (Stone not secured)
+      if (descEdit) {
+        const [job] = await db.select().from(jobs).where(eq(jobs.trelloCardId, a.data.card.id))
+        const card = job ? await getCard(a.data.card.id) : null
+        if (job && card) await detectStone(job, card).catch(err => recordIssue({
+          kind: 'trello_webhook', jobId: job.id, operation: null, error: err instanceof Error ? err.message : String(err),
+          summary: 'Check the gemstone details for “ct TBC”',
+        }))
+      }
       const result = await syncRingSizeFromCard(a.data.card.id,
         descEdit ? { kind: 'description', oldDesc: a.data.old!.desc! } : { kind: 'fields' })
       return NextResponse.json({ ok: true, result })
