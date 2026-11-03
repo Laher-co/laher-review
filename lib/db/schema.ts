@@ -61,6 +61,13 @@ export const jobs = pgTable('jobs', {
   // This job's own reply address: j<replyToken>@reply.laher.co
   replyToken:          text('reply_token').unique(),
   sizeSequenceUsed:    boolean('size_sequence_used').notNull().default(false),
+  // Internal only, never shown to customers: centre stone still to be sourced (mirrors the STONE NEEDS SOURCING label)
+  stoneNotSecured:     boolean('stone_not_secured').notNull().default(false),
+  stoneDetailsSeen:    text('stone_details_seen'),   // gemstone details last checked for "ct TBC"
+  // While the card is in REQUIRES SOURCING: 'approved' (DESIGN APPROVED) or 'new_stone'
+  sourcing:            text('sourcing').$type<'approved' | 'new_stone'>(),
+  sourcingSince:       timestamp('sourcing_since', { withTimezone: true }),
+  sourcingDesigner:    text('sourcing_designer'),    // whose funnel it came from
   createdBy:           uuid('created_by').references(() => staff.id),
   createdAt:           createdAt(),
   updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

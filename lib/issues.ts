@@ -4,7 +4,7 @@ import { db, issues, jobs, webhookEvents, type IssueOperation } from './db'
 import { escapeHtml, sendEmail, staffEmailHtml, staffEmails } from './email'
 import { siteOrigin } from './jobs'
 import {
-  addComment, attachUrl, ensureLabel, ensureList, getCard, moveCardToAlterations, moveCardToStage, removeLabel, writeRingSizeFields,
+  addComment, attachUrl, ensureLabel, ensureList, getCard, moveCardToNamedList, moveCardToAlterations, moveCardToStage, removeLabel, writeRingSizeFields,
 } from './trello'
 import type { Stage } from './trello-parse'
 
@@ -36,6 +36,8 @@ const OPERATIONS: Record<string, (a: Record<string, unknown>) => Promise<unknown
   'trello.toAlterations': async a => moveCardToAlterations(String(a.cardId)),
   /** Add designer: one of their four lists (skipped if a list with that name now exists). */
   'trello.createList': async a => ensureList(String(a.boardId), String(a.name), Number(a.pos)),
+  /** Approved with the stone not secured: to the shared REQUIRES SOURCING list. */
+  'trello.toList': async a => moveCardToNamedList(String(a.cardId), String(a.list)),
   'trello.comment':     async a => addComment(String(a.cardId), String(a.text)),
   'trello.attach':      async a => attachUrl(String(a.cardId), String(a.url), String(a.name)),
   'trello.addLabel':    async a => ensureLabel(await card(String(a.cardId)), String(a.name), a.createColor ? String(a.createColor) : undefined),

@@ -49,6 +49,7 @@ export async function closeFollowup(id: string, staffId: string, note: string) {
  * - Ring size: reminders on day 2, 4 and 7, then REQUIRES CALL – SIZE (once per job).
  * - "Do not email": no emails; FOLLOW UP for Jane on day 2.
  * Any customer action stops design follow-ups; only a size stops size ones.
+ * Nothing happens while the card is in REQUIRES SOURCING.
  */
 export async function processFollowups(now = new Date()) {
   const active = await db.select({ f: followups, job: jobs })
@@ -57,6 +58,8 @@ export async function processFollowups(now = new Date()) {
   const log: string[] = []
 
   for (const { f, job } of active) {
+    // Paused while the card is in REQUIRES SOURCING (the clock moves on when it comes out)
+    if (job.sourcing) continue
     const size = f.kind === 'size'
     const plan = size ? 'first' : (f.plan === 'later' ? 'later' : 'first')
     const next = f.remindersSent + 1

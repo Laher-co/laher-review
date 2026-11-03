@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
-  customerRepliedByEmail, logFollowupCall, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
+  customerRepliedByEmail, logFollowupCall, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -583,6 +583,25 @@ export function ChangesRequestedButton({ jobId }: { jobId: string }) {
         {pending && <Spinner />} Changes requested
       </button>
       {result && <p className="text-xs text-stone">{result}</p>}
+      {error && <p className="text-xs text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+/** Internal only: centre stone still to be sourced. Mirrors the STONE NEEDS SOURCING label. */
+export function StoneSwitch({ jobId, on }: { jobId: string; on: boolean }) {
+  const { pending, error, run } = useAction()
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button type="button" role="switch" aria-checked={on} disabled={pending}
+        onClick={() => run(() => setStoneNotSecured(jobId, !on))}
+        className={`inline-flex items-center gap-2.5 rounded-full border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ${on ? 'border-red-300 bg-red-50 text-red-800' : 'border-sand bg-white text-cocoa'}`}>
+        <span className={`relative h-5 w-9 rounded-full transition-colors ${on ? 'bg-red-700' : 'bg-sand'}`}>
+          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+        </span>
+        {pending ? <Spinner /> : null}
+        Stone not secured {on ? 'on' : 'off'}
+      </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
   )

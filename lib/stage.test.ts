@@ -45,3 +45,21 @@ describe('jobStage', () => {
     })).toBe('alterations')
   })
 })
+
+describe('REQUIRES SOURCING', () => {
+  const published = [new Date('2026-11-01T00:00:00Z')]
+  const approved = [{ decision: 'approved' as const, sizeOutstanding: false, createdAt: new Date('2026-11-02T00:00:00Z') }]
+  const changes = [{ decision: 'changes_requested' as const, sizeOutstanding: false, createdAt: new Date('2026-11-02T00:00:00Z') }]
+  it('shows the sourcing banners while the card is there', () => {
+    expect(jobStage({ publishedAt: published, decisions: approved, ringSizeStatus: 'confirmed', sourcing: 'approved' })).toBe('sourcing_approved')
+    expect(jobStage({ publishedAt: published, decisions: changes, ringSizeStatus: 'confirmed', sourcing: 'new_stone' })).toBe('sourcing_new_stone')
+  })
+  it('moved out to Print Ready: approved, even without a customer approval', () => {
+    expect(jobStage({ publishedAt: published, decisions: [], ringSizeStatus: 'confirmed', overrides: [{ stage: 'approved', at: '2026-11-03T00:00:00Z' }] })).toBe('approved')
+  })
+  it('moved out to Alterations: alterations, until the next version is published', () => {
+    const o = [{ stage: 'alterations' as const, at: '2026-11-03T00:00:00Z' }]
+    expect(jobStage({ publishedAt: published, decisions: approved, ringSizeStatus: 'confirmed', overrides: o })).toBe('alterations')
+    expect(jobStage({ publishedAt: [...published, new Date('2026-11-04T00:00:00Z')], decisions: approved, ringSizeStatus: 'confirmed', overrides: o })).toBe('feedback_needed')
+  })
+})

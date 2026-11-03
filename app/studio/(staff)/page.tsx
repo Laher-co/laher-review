@@ -100,6 +100,8 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                       <p className="text-sm text-stone">{WAITING_FOR[w.reason]} · {designer ?? 'No designer'}</p>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
+                      {job.stoneNotSecured && <Badge tone="danger">Stone not secured</Badge>}
+                      {job.sourcing && <Badge tone="warn">Requires sourcing{job.sourcingDesigner ? ` · ${job.sourcingDesigner}` : ''}</Badge>}
                       {job.doNotEmail && <Badge tone="warn">Do not email</Badge>}
                       {escalatedJobIds.has(job.id) && <Badge tone="danger">Escalated</Badge>}
                       {overdue && <Badge tone="danger">Overdue</Badge>}
@@ -127,8 +129,10 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                       <p className="text-sm text-stone">{designer ?? 'No designer'} · since {formatSydney(f.startedAt)}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      {job.stoneNotSecured && <Badge tone="danger">Stone not secured</Badge>}
+                      {job.sourcing && <Badge tone="warn">Requires sourcing{job.sourcingDesigner ? ` · ${job.sourcingDesigner}` : ''}</Badge>}
                       {job.doNotEmail && <Badge tone="warn">Do not email</Badge>}
-                      <Badge tone={f.status === 'active' ? 'neutral' : 'danger'}>{followupLabel(f)}</Badge>
+                      <Badge tone={f.status === 'active' ? 'neutral' : 'danger'}>{job.sourcing ? `${followupLabel(f)} (paused)` : followupLabel(f)}</Badge>
                     </div>
                   </Link>
                 </li>
@@ -173,7 +177,10 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                       <div className="flex flex-wrap items-center gap-2 text-sm text-cocoa-light sm:justify-end">
                         {view === 'all' && <span>{designer ?? 'No designer'}</span>}
                         <span>{latest ? versionTitle(latest) : 'No version sent'}</span>
-                        <Badge tone={status.tone}>{status.label}</Badge>
+                        {job.sourcing
+                          ? <Badge tone="warn">Requires sourcing · {job.sourcingDesigner ?? designer ?? 'No designer'}</Badge>
+                          : <Badge tone={status.tone}>{status.label}</Badge>}
+                        {job.stoneNotSecured && <Badge tone="danger">Stone not secured</Badge>}
                         {waitingJobIds.has(job.id) && <Badge tone="warn">Awaiting reply</Badge>}
                         {escalatedJobIds.has(job.id) && <Badge tone="danger">Escalated</Badge>}
                         {followupByJob.get(job.id) && (
