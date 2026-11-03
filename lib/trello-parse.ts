@@ -100,3 +100,14 @@ export function alterationsPlan<T extends { name: string }>(
   const target = findStageList(lists, funnel.designer, 'Alterations')
   return target ? { action: 'move', from: currentList, target } : { action: 'no_list', designer: funnel.designer }
 }
+
+/**
+ * A move between two designers' funnels ("4.1. Heather | New Design Renders" →
+ * "Tara | New Design Renders"), or null if the designer is the same or either
+ * list isn't a designer list.
+ */
+export function designerChange(listBefore: string, listAfter: string): { from: string; to: string } | null {
+  const before = parseDesignerList(listBefore), after = parseDesignerList(listAfter)
+  if (!before || !after || before.designer.toLowerCase() === after.designer.toLowerCase()) return null
+  return { from: before.designer, to: after.designer }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  parseDesignerList, findStageList, descriptionSection, parseCardRef, extractEmail, alterationsPlan,
+  parseDesignerList, findStageList, descriptionSection, parseCardRef, extractEmail, alterationsPlan, designerChange,
 } from './trello-parse'
 
 describe('parseDesignerList', () => {
@@ -98,5 +98,17 @@ describe('alterationsPlan (customer sent something in the portal)', () => {
   })
   it('reports a missing Alterations list for that designer', () => {
     expect(alterationsPlan([], 'Rehan | Revision', lists)).toEqual({ action: 'no_list', designer: 'Rehan' })
+  })
+})
+
+describe('designerChange', () => {
+  it('spots a move to another designer, whatever the stage or numbering', () => {
+    expect(designerChange('4.1. Heather | New Design Renders', 'Tara | New Design Renders')).toEqual({ from: 'Heather', to: 'Tara' })
+    expect(designerChange('2.2 Rehan | Revision', '5.4 Aaron | Print Ready')).toEqual({ from: 'Rehan', to: 'Aaron' })
+  })
+  it('ignores moves within one designer’s funnel and to or from other lists', () => {
+    expect(designerChange('4.3 Heather | Revision', '4.4 heather | Alterations')).toBeNull()
+    expect(designerChange('REQUIRES SOURCING', 'Tara | Print Ready')).toBeNull()
+    expect(designerChange('Tara | Print Ready', '2.0 Awaiting Printing')).toBeNull()
   })
 })
