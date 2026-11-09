@@ -18,7 +18,8 @@ export type Common = {
 import { LOGO } from './brand-assets'
 
 /**
- * Heading styles for customer emails (Ryan is choosing one). 'classic' is the
+ * Heading styles for customer emails. Ryan chose 'spaced' (option B) for every
+ * customer email and the review app (components/brand.tsx SpacedHeading). 'classic' was the
  * current one. Email apps can't all load web fonts, so each has a safe fallback.
  */
 export type HeadingStyle = 'classic' | 'playfair' | 'spaced' | 'centred'
@@ -68,7 +69,7 @@ function layout(c: Common, o: {
     : `If you’d like to reply, please leave a note on <a href="${c.pageUrl}" style="color:#4A3022">your design page</a> so ${who} sees it straight away.`
   const signOff = o.team ? 'The LAHER studio' : `${c.designer} & the LAHER studio`
 
-  const style = o.headingStyle ?? 'classic'
+  const style = o.headingStyle ?? 'spaced'
   const fontLink = style === 'playfair' || style === 'centred'
     ? '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet">' : ''
   const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">${fontLink}</head>

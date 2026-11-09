@@ -8,7 +8,7 @@ import { SETTING_QUESTION, settingState } from '@/lib/setting'
 import { getSettingImages } from '@/lib/setting-server'
 import { firstNameOf, irregularClusterOn, onboardingProgress, sizeUnconfirmed, type SectionKey } from '@/lib/onboarding'
 import { getClusterImages } from '@/lib/onboarding-server'
-import { Wordmark } from '@/components/brand'
+import { SpacedHeading, Wordmark } from '@/components/brand'
 import SettingChooser from './setting-chooser'
 import { ClusterChooser, DesignerNotes, RingSizeSection, StaffQuestions } from './sections'
 
@@ -82,10 +82,10 @@ export default async function OnboardingPage({ params }: { params: { code: strin
       <main className="mx-auto max-w-3xl px-4 pb-24 sm:px-6">
         {/* 1. Welcome */}
         <section className="pt-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cocoa-light">Welcome to LAHER Bespoke</p>
-          <h1 className="mt-2 font-serif text-[2rem] leading-tight text-cocoa-dark sm:text-[2.6rem]">
+          <p className="font-serif text-lg italic text-cocoa-light">Welcome to LAHER Bespoke</p>
+          <SpacedHeading className="mt-3">
             Thank you for choosing LAHER{first ? `, ${first}` : ''}
-          </h1>
+          </SpacedHeading>
           <p className="mt-4 text-[16px] leading-relaxed text-ink">This is the exciting part: your ring is about to start taking shape. Here’s what happens next:</p>
           <ol className="mt-5 space-y-4">
             {[
@@ -173,8 +173,8 @@ function Section({ id, title, done, counted, children }: {
 }) {
   return (
     <section id={id} className="mt-14 scroll-mt-28 border-t border-sand pt-10">
-      <div className="flex items-center gap-3">
-        <h2 className="font-serif text-[1.65rem] leading-tight text-cocoa-dark sm:text-3xl">{title}</h2>
+      <div className="flex items-start justify-between gap-3">
+        <SpacedHeading as="h2" size="md">{title}</SpacedHeading>
         {counted && done && (
           <span className="inline-flex items-center gap-1 rounded-full bg-[#3F4A3A] px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider text-ivory">
             <Tick className="h-3 w-3" /> Done

@@ -35,3 +35,22 @@ export function Badge({ tone = 'neutral', children }: { tone?: keyof typeof BADG
     </span>
   )
 }
+
+/**
+ * Heading option B (also used in every customer email): letter-spaced
+ * capitals with a short gold rule underneath.
+ */
+export function SpacedHeading({ as: Tag = 'h1', size = 'lg', className = '', children }: {
+  as?: 'h1' | 'h2' | 'h3'; size?: 'lg' | 'md'; className?: string; children: React.ReactNode
+}) {
+  return (
+    <div className={className}>
+      <Tag className={`font-inter font-normal uppercase text-cocoa-dark ${size === 'lg'
+        ? 'text-[17px] leading-[1.55] tracking-[0.3em] sm:text-[20px]'
+        : 'text-[14px] leading-[1.5] tracking-[0.28em] sm:text-[15px]'}`}>
+        {children}
+      </Tag>
+      <span aria-hidden className={`block h-px bg-[#B8955E] ${size === 'lg' ? 'mt-3 w-11' : 'mt-2.5 w-9'}`} />
+    </div>
+  )
+}

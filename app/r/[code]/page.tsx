@@ -6,7 +6,7 @@ import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel } from '@/lib/feedback'
 import { jobStage, STAGE_COPY, type Stage } from '@/lib/stage'
 import { roundState } from '@/lib/approval'
-import { Wordmark } from '@/components/brand'
+import { SpacedHeading, Wordmark } from '@/components/brand'
 import LightboxThumbs from '@/components/LightboxThumbs'
 import Gallery from './Gallery'
 import { ApproveButton, RequestChangesButton, RingSizeBar } from './client'
@@ -75,7 +75,7 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
 
       <main className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
         <p className="text-sm text-stone">Hi {firstName},</p>
-        <h1 className="mt-1 font-serif text-[2rem] leading-tight text-cocoa-dark sm:text-4xl">Your bespoke design</h1>
+        <SpacedHeading className="mt-2">Your bespoke design</SpacedHeading>
         {designerName && <p className="mt-2 text-sm text-cocoa-light">Designed by {designerName}</p>}
         {job.onboardingLinkPostedAt && (
           <a href={`/r/${job.publicCode}/welcome`}
