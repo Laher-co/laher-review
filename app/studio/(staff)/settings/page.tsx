@@ -1,7 +1,8 @@
 import { asc, eq } from 'drizzle-orm'
 import { db, staff } from '@/lib/db'
 import { requireStaff } from '@/lib/auth'
-import { AddDesigner, DesignerToggle } from './client'
+import { AddDesigner, DesignerToggle, SettingImageSlot } from './client'
+import { getSettingImages } from '@/lib/setting-server'
 
 export const metadata = { title: 'Settings — LAHER Studio' }
 
@@ -10,6 +11,7 @@ export default async function SettingsPage() {
   const people = await db.select().from(staff).orderBy(asc(staff.name))
   const isOwner = people.find(p => p.id === session.staffId)?.role === 'owner'
   const designers = people.filter(p => p.role === 'designer' && p.active)
+  const settingImages = isOwner ? await getSettingImages() : {}
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -32,6 +34,20 @@ export default async function SettingsPage() {
         </ul>
         {isOwner && <AddDesigner />}
       </section>
+
+      {isOwner && (
+        <section className="mt-6 rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
+          <h2 className="font-serif text-xl text-cocoa-dark">Setting question images</h2>
+          <p className="mt-1 text-sm text-stone">
+            Shown on the customer’s setting question page. Landscape photos work best (shown at about 16:11).
+            Until you upload one, a placeholder illustration is shown.
+          </p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <SettingImageSlot choice="high_set" url={settingImages.high_set?.url ?? null} />
+            <SettingImageSlot choice="low_set" url={settingImages.low_set?.url ?? null} />
+          </div>
+        </section>
+      )}
 
       <section className="mt-6 rounded-2xl border border-sand bg-white/70 p-5 text-sm text-stone sm:p-6">
         <h2 className="font-serif text-xl text-cocoa-dark">Staff</h2>

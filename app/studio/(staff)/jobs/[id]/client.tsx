@@ -6,13 +6,14 @@ import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
   customerRepliedByEmail, logFollowupCall, setJobFlag, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
-  removeOption, removeRender, saveVersionNote,
+  removeOption, removeRender, saveVersionNote, setSettingChoiceAction, setSettingNotNeeded,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
 import { Badge, Spinner } from '@/components/brand'
 import Lightbox from '@/components/Lightbox'
 import { AddPhotosButton, PhotoTray, usePhotoAttachments } from '@/components/PhotoAttach'
 import { RING_SIZE_STATUS_LABEL } from '@/lib/feedback'
+import { SETTING_CHOICES, SETTING_COPY, type SettingChoice } from '@/lib/setting'
 
 const btn = 'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm transition-colors disabled:opacity-50'
 const btnPrimary = `${btn} bg-cocoa text-ivory hover:bg-cocoa-dark`
@@ -637,5 +638,63 @@ export function FlagSwitch({ jobId, flag, on, label }: { jobId: string; flag: 's
       </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
+  )
+}
+
+// ── Setting question ──────────────────────────────────────────────────────────
+
+/** Link to send the customer, "Not needed", and the answer (staff can set it too). */
+export function SettingQuestionPanel({ jobId, url, choice, answeredBy, answeredAt, notNeeded, locked }: {
+  jobId: string; url: string; choice: SettingChoice | null; answeredBy: string | null; answeredAt: string | null
+  notNeeded: boolean; locked: boolean
+}) {
+  const { pending, error, run } = useAction()
+  return (
+    <section className="rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-serif text-xl text-cocoa-dark">Setting question</h2>
+          <p className="mt-1 text-sm text-stone">How the engagement ring and wedding band sit together. No emails are sent: copy the link to the customer.</p>
+        </div>
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-cocoa">
+          <input type="checkbox" checked={notNeeded} disabled={pending} className="h-4 w-4 accent-cocoa"
+            onChange={e => run(() => setSettingNotNeeded(jobId, e.target.checked))} />
+          Not needed
+        </label>
+      </div>
+
+      {notNeeded ? (
+        <p className="mt-4 rounded-xl bg-linen px-4 py-3 text-sm text-stone">Marked not needed. If the customer opens the link, it says there’s no need to choose.</p>
+      ) : (
+        <>
+          <div className="mt-4 rounded-xl border border-sand bg-white px-4 py-3">
+            {choice ? (
+              <>
+                <p className="font-semibold tracking-wide text-cocoa-dark">{SETTING_COPY[choice].label}</p>
+                <p className="mt-0.5 text-xs text-stone">
+                  {answeredBy ? `Set by ${answeredBy}` : 'Chosen by the customer'}{answeredAt ? ` · ${answeredAt}` : ''}
+                  {locked ? ' · Version One is published, so the customer can no longer change it' : ''}
+                </p>
+              </>
+            ) : <p className="text-sm text-stone">Not answered yet.</p>}
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm">
+            <span className="flex items-center gap-2"><span className="text-cocoa-light">Customer link:</span> <CopyLink url={url} /></span>
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-cocoa-light">Set the answer:</span>
+              {SETTING_CHOICES.map(c => (
+                <button key={c} type="button" disabled={pending || choice === c}
+                  onClick={() => run(() => setSettingChoiceAction(jobId, c))}
+                  className={`${btnGhost} px-3 py-1.5 text-xs ${choice === c ? 'border-cocoa bg-linen' : ''}`}>
+                  {c === 'high_set' ? 'High set' : 'Low set'}
+                </button>
+              ))}
+              {pending && <Spinner />}
+            </span>
+          </div>
+        </>
+      )}
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+    </section>
   )
 }

@@ -5,7 +5,7 @@ import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
-import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, FlagSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, FlagSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, SettingQuestionPanel, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
@@ -152,6 +152,11 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           </div>
         </dl>
       </section>
+
+      <SettingQuestionPanel jobId={job.id} url={`${reviewUrl(job)}/setting`} choice={job.settingChoice}
+        answeredBy={job.settingChoiceBy ? nameOf(job.settingChoiceBy) : null}
+        answeredAt={job.settingChoiceAt ? formatSydney(job.settingChoiceAt) : null}
+        notNeeded={job.settingNotNeeded} locked={published.length > 0} />
 
       <QueuePanel jobId={job.id}
         waitingFor={openWait ? WAITING_FOR[openWait.reason] : null}

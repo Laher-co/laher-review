@@ -75,6 +75,11 @@ export const jobs = pgTable('jobs', {
   conceptRender:       boolean('concept_render').notNull().default(false),
   // Approved, but held in Alterations: building the full design, or confirming side stones
   approvedHold:        text('approved_hold').$type<'concept' | 'side_stones'>(),
+  // Setting question: how the engagement ring and wedding band sit together
+  settingChoice:       text('setting_choice').$type<'high_set' | 'low_set'>(),
+  settingChoiceAt:     timestamp('setting_choice_at', { withTimezone: true }),
+  settingChoiceBy:     uuid('setting_choice_by').references(() => staff.id),   // null: the customer
+  settingNotNeeded:    boolean('setting_not_needed').notNull().default(false),
   createdBy:           uuid('created_by').references(() => staff.id),
   createdAt:           createdAt(),
   updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

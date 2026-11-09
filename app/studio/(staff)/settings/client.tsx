@@ -1,7 +1,11 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { addDesigner, removeDesigner, runBackfill, setDesignerOnStudio, type AddDesignerReport, type BackfillReport } from '../../actions'
+import Image from 'next/image'
+import { useRef, useState, useTransition } from 'react'
+import { upload } from '@vercel/blob/client'
+import { addDesigner, removeDesigner, runBackfill, saveSettingImage, setDesignerOnStudio, type AddDesignerReport, type BackfillReport } from '../../actions'
+import { SETTING_COPY, type SettingChoice } from '@/lib/setting'
+import SettingIllustration from '@/components/SettingIllustration'
 import { Badge, Spinner } from '@/components/brand'
 
 const RESULT_LABEL: Record<string, string> = {
@@ -107,6 +111,66 @@ export function AddDesigner() {
           </ul>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Ryan only: the photo for one setting option. Uploaded straight to Blob, then saved. */
+export function SettingImageSlot({ choice, url }: { choice: SettingChoice; url: string | null }) {
+  const input = useRef<HTMLInputElement>(null)
+  const [pending, start] = useTransition()
+  const [pct, setPct] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const onFile = (file: File | undefined) => {
+    if (!file) return
+    setError(null)
+    start(async () => {
+      try {
+        const safe = file.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-')
+        setPct(0)
+        const blob = await upload(`settings/${choice}/${safe}`, file, {
+          access: 'public', handleUploadUrl: '/api/staff/upload',
+          clientPayload: JSON.stringify({ settingImage: choice }),
+          onUploadProgress: ({ percentage }) => setPct(Math.round(percentage)),
+        })
+        await saveSettingImage(choice, { url: blob.url, pathname: blob.pathname })
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Upload failed.')
+      } finally {
+        setPct(null)
+        if (input.current) input.current.value = ''
+      }
+    })
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-sand bg-white">
+      <div className="relative aspect-[16/11] bg-linen">
+        {url
+          ? <Image src={url} alt={SETTING_COPY[choice].title} fill sizes="320px" className="object-cover" />
+          : <SettingIllustration choice={choice} className="h-full w-full" />}
+      </div>
+      <div className="p-3">
+        <p className="text-sm font-medium text-cocoa-dark">{SETTING_COPY[choice].title}</p>
+        <p className="mt-0.5 text-xs text-stone">{url ? 'Your photo' : 'Placeholder illustration'}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/avif" className="hidden"
+            onChange={e => onFile(e.target.files?.[0])} />
+          <button type="button" disabled={pending} onClick={() => input.current?.click()}
+            className="inline-flex items-center gap-2 rounded-lg bg-cocoa px-3 py-2 text-xs text-ivory hover:bg-cocoa-dark disabled:opacity-50">
+            {pending && <Spinner />}{pct !== null ? `Uploading ${pct}%` : url ? 'Replace image' : 'Upload image'}
+          </button>
+          {url && (
+            <button type="button" disabled={pending}
+              onClick={() => start(async () => { try { await saveSettingImage(choice, null) } catch (e) { setError(e instanceof Error ? e.message : 'Failed.') } })}
+              className="rounded-lg border border-sand px-3 py-2 text-xs text-cocoa hover:bg-linen disabled:opacity-50">
+              Use placeholder
+            </button>
+          )}
+        </div>
+        {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
+      </div>
     </div>
   )
 }

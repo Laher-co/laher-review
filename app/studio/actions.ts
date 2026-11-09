@@ -25,6 +25,8 @@ import { photoNote } from '@/lib/customer-message'
 import { setStone } from '@/lib/stone-sync'
 import { releaseHold, setFlag, type FlagKey } from '@/lib/job-flags'
 import { gemstoneDetails } from '@/lib/stone'
+import { isSettingChoice, settingPath } from '@/lib/setting'
+import { recordSettingChoice, setSettingImage } from '@/lib/setting-server'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
@@ -422,7 +424,7 @@ export type BackfillReport = { list: string | null; results: { card: string; res
 async function requireOwner() {
   const session = await requireStaff()
   const [me] = await db.select({ role: staff.role }).from(staff).where(eq(staff.id, session.staffId))
-  if (me?.role !== 'owner') throw new Error('Only Ryan can change the designers.')
+  if (me?.role !== 'owner') throw new Error('Only Ryan can change this.')
   return session
 }
 
@@ -504,6 +506,40 @@ export async function removeDesigner(staffId: string) {
     .where(and(eq(staff.id, staffId), eq(staff.role, 'designer'))).returning()
   if (!d) throw new Error('Designer not found.')
   await logEvent(null, session.staffId, 'designer_removed', { designer: d.name })
+  revalidatePath('/studio/settings')
+}
+
+// ── Setting question ──────────────────────────────────────────────────────────
+
+/** Staff record the customer's setting answer themselves (posts the same Trello comment). */
+export async function setSettingChoiceAction(jobId: string, choice: string) {
+  const session = await requireStaff()
+  if (!isSettingChoice(choice)) throw new Error('Unknown setting.')
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
+  if (!job) throw new Error('Job not found.')
+  await recordSettingChoice(job, choice, { staffId: session.staffId, name: session.name })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath(settingPath(job.publicCode))
+}
+
+/** "Not needed": the question doesn't apply to this design (the customer page says so). */
+export async function setSettingNotNeeded(jobId: string, on: boolean) {
+  const session = await requireStaff()
+  const [job] = await db.update(jobs).set({ settingNotNeeded: on, updatedAt: new Date() }).where(eq(jobs.id, jobId)).returning()
+  if (!job) throw new Error('Job not found.')
+  await logEvent(jobId, session.staffId, on ? 'setting_not_needed' : 'setting_needed')
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath(settingPath(job.publicCode))
+}
+
+/** Ryan only: the image for one setting option (uploaded straight to Blob first), or null for the placeholder. */
+export async function saveSettingImage(choice: string, image: { url: string; pathname: string } | null) {
+  const session = await requireOwner()
+  if (!isSettingChoice(choice)) throw new Error('Unknown setting.')
+  if (image && !image.pathname.startsWith('settings/')) throw new Error('Invalid upload.')
+  const replaced = await setSettingImage(choice, image)
+  if (replaced && replaced.url !== image?.url) await del(replaced.url).catch(() => {})
+  await logEvent(null, session.staffId, 'setting_image_changed', { choice, removed: !image })
   revalidatePath('/studio/settings')
 }
 

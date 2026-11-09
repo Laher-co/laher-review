@@ -24,6 +24,8 @@ import { hasLabel, LABEL_DESIGN_APPROVED, LABEL_OLD_SYSTEM, SOURCING_LIST } from
 import { enterSourcing } from '@/lib/stone-sync'
 import { approvalComment, approvalRoute, roundState } from '@/lib/approval'
 import { parseDesignerList } from '@/lib/trello-parse'
+import { isSettingChoice, settingPath, settingState } from '@/lib/setting'
+import { recordSettingChoice } from '@/lib/setting-server'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -47,6 +49,24 @@ async function publishedVersion(jobId: string, versionId: string) {
 const getListName = (listId: string) => getList(listId).then(l => l.name).catch(() => null)
 
 const studioLink = (jobId: string) => `${siteOrigin()}/studio/jobs/${jobId}`
+
+// ── Setting question ──────────────────────────────────────────────────────────
+
+/** The customer's answer to the setting question. Changeable until Version One is published. */
+export async function chooseSetting(code: string, choice: string): Promise<Result> {
+  if (!isSettingChoice(choice)) return { ok: false, error: 'Please choose one of the two options.' }
+  const { job } = await jobForCode(code)
+  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(versions)
+    .where(and(eq(versions.jobId, job.id), eq(versions.status, 'published')))
+  const state = settingState(job, n)
+  if (state === 'not_needed') return { ok: false, error: 'There’s no need to choose: we have this covered for your design.' }
+  if (state === 'locked' && job.settingChoice !== choice) {
+    return { ok: false, error: 'Your design is already underway with this setting. Send us a message if you’d like to talk it through.' }
+  }
+  await recordSettingChoice(job, choice, null)
+  revalidatePath(settingPath(code))
+  return { ok: true }
+}
 
 // ── Ring size ─────────────────────────────────────────────────────────────────
 
