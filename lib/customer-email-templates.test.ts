@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  approvedSummary, changesSummary, designReminder, laterVersionReminder, sizeReminder, staffReplied, versionReady,
+  approvedSummary, changesSummary, designReminder, laterVersionReminder, moreQuestionEmail, sizeReminder, staffReplied, versionReady, welcomeEmail,
 } from './customer-email-templates'
 
 const c = { firstName: 'Liam', designer: 'Heather', pageUrl: 'https://review.laher.co/r/abc', ringSizeNeeded: true, ringSizeHint: 'M', replyByEmail: true }
@@ -90,5 +90,34 @@ describe('concept renders', () => {
       .toContain('Heather will now build your full design, and we’ll share it with you for your final approval.')
     expect(approvedSummary({ ...c, what: 'Version Two', comments: null, sizeOutstanding: false, next: 'finalising' }).text)
       .toContain('Heather is now finalising your design')
+  })
+})
+
+describe('onboarding emails', () => {
+  const w = { ...c, welcomeUrl: 'https://review.laher.co/r/abc/welcome' }
+  it('welcome: warm subject, one button to the welcome page, no ring size line', () => {
+    const e = welcomeEmail({ ...w, hasDesigner: true })
+    expect(e.subject).toBe('Welcome to LAHER Bespoke, Liam')
+    expect(e.text).toContain('Thank you so much for choosing LAHER')
+    expect(e.text).toContain('a few quick details will help us get your design just right')
+    expect((e.html.match(/display:inline-block;background:#4A3022/g) ?? []).length).toBe(1)
+    expect(e.html).toContain('href="https://review.laher.co/r/abc/welcome"')
+    expect(e.text).not.toContain('Please confirm your ring size')
+    expect(e.text).toContain('Heather & the LAHER studio')
+  })
+  it('signed by the studio when no designer is assigned yet', () => {
+    const e = welcomeEmail({ ...w, designer: 'Your designer', hasDesigner: false })
+    expect(e.text).toContain('With love,\nThe LAHER studio')
+    expect(e.text).not.toContain('Your designer')
+  })
+  it('one more question', () => {
+    const e = moreQuestionEmail({ ...w, hasDesigner: true })
+    expect(e.subject).toBe('We have one more quick question about your design')
+    expect(e.html).toContain('href="https://review.laher.co/r/abc/welcome"')
+  })
+  it('never sound urgent', () => {
+    for (const e of [welcomeEmail({ ...w, hasDesigner: true }), moreQuestionEmail({ ...w, hasDesigner: false })]) {
+      expect(e.text).not.toMatch(/\b(last|final)\b|deadline|urgent|asap|hurry/i)
+    }
   })
 })

@@ -27,13 +27,16 @@ function layout(c: Common, o: {
   after?: string[]              // already-escaped HTML, after the quote/list
   button: { label: string; href?: string }
   skipRingLine?: boolean
+  team?: boolean                // signed by the studio (no designer assigned yet)
 }) {
   const ringLine = c.ringSizeNeeded && !o.skipRingLine
   const href = o.button.href ?? c.pageUrl
   const ringHtml = `Please confirm your ring size whenever you’re ready${esc(around(c.ringSizeHint))}. ${esc(c.designer)} will need it before making your ring, and if you’re unsure we’d love to help.`
+  const who = o.team ? 'the studio team' : esc(c.designer)
   const replyHtml = c.replyByEmail
-    ? `Simply reply to this email or leave a note on <a href="${c.pageUrl}" style="color:#4A3022">your design page</a>, and it will come straight to ${esc(c.designer)} and the team.`
-    : `If you’d like to reply, please leave a note on <a href="${c.pageUrl}" style="color:#4A3022">your design page</a> so ${esc(c.designer)} sees it straight away.`
+    ? `Simply reply to this email or leave a note on <a href="${c.pageUrl}" style="color:#4A3022">your design page</a>, and it will come straight to ${o.team ? 'the team' : `${who} and the team`}.`
+    : `If you’d like to reply, please leave a note on <a href="${c.pageUrl}" style="color:#4A3022">your design page</a> so ${who} sees it straight away.`
+  const signOff = o.team ? 'The LAHER studio' : `${c.designer} & the LAHER studio`
 
   const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"></head>
 <body style="margin:0;padding:0;background:#F8F4EE;-webkit-text-size-adjust:100%">
@@ -47,7 +50,7 @@ function layout(c: Common, o: {
   ${(o.after ?? []).map(p => `<p style="margin:0 0 14px">${p}</p>`).join('\n  ')}
   <p style="margin:24px 0 28px"><a href="${href}" style="display:inline-block;background:#4A3022;color:#F8F4EE;text-decoration:none;padding:15px 24px;border-radius:10px;font-size:16px">${esc(o.button.label)}</a></p>
   ${ringLine ? `<p style="margin:0 0 22px;padding:14px 16px;border:1px solid #E4D9CB;border-radius:10px;background:#FFFFFF;font-size:15px">${ringHtml}</p>` : ''}
-  <p style="margin:0 0 20px">With love,<br>${esc(c.designer)} &amp; the LAHER studio</p>
+  <p style="margin:0 0 20px">With love,<br>${esc(signOff)}</p>
   <p style="margin:0;color:#8C7B6E;font-size:14px">${replyHtml}</p>
 </div></body></html>`
 
@@ -60,11 +63,46 @@ function layout(c: Common, o: {
     ...(o.after ?? []).map(strip),
     `${o.button.label}: ${href}`,
     ringLine ? strip(ringHtml) + ` ${c.pageUrl}#ring-size` : '',
-    `With love,\n${c.designer} & the LAHER studio`,
+    `With love,\n${signOff}`,
     strip(replyHtml) + ` ${c.pageUrl}`,
   ].filter(Boolean).join('\n\n')
 
   return { html, text }
+}
+
+// ── Onboarding (sent from Studio, never automatic) ────────────────────────────
+
+/** "Send welcome email": thank them, and a few quick details on their welcome page. */
+export function welcomeEmail(c: Common & { welcomeUrl: string; hasDesigner: boolean }): EmailContent {
+  return {
+    subject: c.firstName ? `Welcome to LAHER Bespoke, ${c.firstName}` : 'Welcome to LAHER Bespoke',
+    ...layout(c, {
+      heading: 'Welcome to LAHER Bespoke',
+      paragraphs: [
+        'Thank you so much for choosing LAHER. We’re so excited to start creating your ring with you.',
+        'Before we begin, a few quick details will help us get your design just right. It only takes a few minutes, and you can come back to it whenever suits you.',
+      ],
+      button: { label: 'Open your welcome page', href: c.welcomeUrl },
+      skipRingLine: true,
+      team: !c.hasDesigner,
+    }),
+  }
+}
+
+/** "Let the customer know": a question was added after the welcome email. */
+export function moreQuestionEmail(c: Common & { welcomeUrl: string; hasDesigner: boolean }): EmailContent {
+  return {
+    subject: 'We have one more quick question about your design',
+    ...layout(c, {
+      heading: 'One more quick question',
+      paragraphs: [
+        'We have one more quick question about your design. Whenever you have a moment, you’ll find it on your welcome page.',
+      ],
+      button: { label: 'Answer the question', href: c.welcomeUrl },
+      skipRingLine: true,
+      team: !c.hasDesigner,
+    }),
+  }
 }
 
 // ── New version ready (on Publish) ────────────────────────────────────────────

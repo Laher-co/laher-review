@@ -7,7 +7,7 @@ import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
   customerRepliedByEmail, logFollowupCall, setJobFlag, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote, setSettingChoiceAction,
-  addOnboardingQuestion, postOnboardingLinkAction, removeOnboardingQuestion, setIrregularClusterAction, setSettingQuestionAction,
+  addOnboardingQuestion, postOnboardingLinkAction, removeOnboardingQuestion, sendOnboardingEmail, setIrregularClusterAction, setSettingQuestionAction,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
 import { Badge, Spinner } from '@/components/brand'
@@ -663,6 +663,7 @@ export type OnboardingPanelProps = {
   cluster: { on: boolean; auto: boolean; override: boolean | null; styles: string[]; savedAt: string | null }
   questions: { id: string; question: string; answer: string | null; answeredAt: string | null; askedBy: string }[]
   notes: { id: string; body: string; photos: string[]; when: string }[]
+  email: { doNotEmail: boolean; welcomeSent: string | null; welcomeBy: string | null; needsNudge: boolean; nudgeSent: string | null; nudgeBy: string | null }
 }
 
 /** The customer's onboarding page: link, which questions are on, and everything they've answered. */
@@ -689,6 +690,35 @@ export function OnboardingPanel(p: OnboardingPanelProps) {
           ? <span className="text-xs text-stone">Posted on the Trello card {p.linkPostedAt}</span>
           : <button type="button" disabled={pending} onClick={() => run(() => postOnboardingLinkAction(p.jobId))}
               className={`${btnGhost} px-3 py-1.5 text-xs`}>Post link on the Trello card</button>}
+      </div>
+
+      {/* Welcome email: only ever sent by a person */}
+      <div className="mt-4 rounded-xl border border-sand bg-white px-4 py-3 text-sm">
+        {p.email.doNotEmail ? (
+          <p className="text-amber-900">Do not email is on, contact the customer directly.</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" disabled={pending} className={p.email.welcomeSent ? `${btnGhost} px-3 py-1.5 text-xs` : `${btnPrimary} px-3 py-2 text-xs`}
+                onClick={() => (!p.email.welcomeSent || confirm('Send the welcome email again?')) && run(() => sendOnboardingEmail(p.jobId, 'welcome'))}>
+                {p.email.welcomeSent ? 'Resend' : 'Send welcome email'}
+              </button>
+              <span className="text-xs text-stone">
+                {p.email.welcomeSent ? `Sent ${p.email.welcomeSent} by ${p.email.welcomeBy}` : 'Not sent yet. Thanks them and links to their welcome page.'}
+              </span>
+            </div>
+            {p.email.needsNudge && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 px-3 py-2">
+                <button type="button" disabled={pending} className={`${btnPrimary} px-3 py-2 text-xs`}
+                  onClick={() => run(() => sendOnboardingEmail(p.jobId, 'question'))}>Let the customer know</button>
+                <span className="text-xs text-amber-900">A question was added after the welcome email. Sends “We have one more quick question about your design”.</span>
+              </div>
+            )}
+            {!p.email.needsNudge && p.email.nudgeSent && (
+              <p className="mt-2 text-xs text-stone">Customer told about a new question {p.email.nudgeSent} by {p.email.nudgeBy}</p>
+            )}
+          </>
+        )}
       </div>
 
       {/* Setting question */}

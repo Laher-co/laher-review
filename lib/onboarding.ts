@@ -5,7 +5,8 @@ export const LABEL_SETTING_QUESTION = 'SETTING QUESTION'
 
 export const onboardingPath = (publicCode: string) => `/r/${publicCode}/welcome`
 
-export const onboardingLinkComment = (url: string) => `Onboarding link: ${url}`
+export const onboardingLinkComment = (url: string, studioUrl: string) =>
+  `Onboarding link: ${url}\n\nSend the welcome email from LAHER Studio: ${studioUrl}`
 export const newQuestionComment = (url: string) =>
   `New question added – let the customer know there’s more to answer on their page: ${url}`
 

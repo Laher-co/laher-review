@@ -49,7 +49,7 @@ describe('onboarding rules', () => {
     expect(firstNameOf('liam@example.com')).toBe('')
   })
   it('Trello comments', () => {
-    expect(onboardingLinkComment('https://x/r/a/welcome')).toBe('Onboarding link: https://x/r/a/welcome')
+    expect(onboardingLinkComment('https://x/r/a/welcome', 'https://x/studio/jobs/1')).toBe('Onboarding link: https://x/r/a/welcome\n\nSend the welcome email from LAHER Studio: https://x/studio/jobs/1')
     expect(newQuestionComment('u')).toBe('New question added – let the customer know there’s more to answer on their page: u')
     expect(clusterComment(['A', 'D'], false)).toBe('**IRREGULAR CLUSTER: A. Single Side Cluster, D. East-West Style**')
     expect(answerComment('Metal?', 'Yellow gold', true)).toBe('**CUSTOMER ANSWER (changed)**\nQ: Metal?\nA: Yellow gold')

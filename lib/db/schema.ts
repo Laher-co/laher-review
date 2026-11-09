@@ -88,6 +88,11 @@ export const jobs = pgTable('jobs', {
   clusterStyles:       text('cluster_styles').array(),
   clusterSavedAt:      timestamp('cluster_saved_at', { withTimezone: true }),
   ringSizeNotSureAt:   timestamp('ring_size_not_sure_at', { withTimezone: true }),         // "Not sure yet" on the onboarding page
+  welcomeEmailSentAt:  timestamp('welcome_email_sent_at', { withTimezone: true }),       // "Send welcome email" (Studio, never automatic)
+  welcomeEmailSentBy:  uuid('welcome_email_sent_by').references(() => staff.id),
+  onboardingQuestionAddedAt: timestamp('onboarding_question_added_at', { withTimezone: true }), // latest question switched on / added
+  questionEmailSentAt: timestamp('question_email_sent_at', { withTimezone: true }),       // "Let the customer know"
+  questionEmailSentBy: uuid('question_email_sent_by').references(() => staff.id),
   createdBy:           uuid('created_by').references(() => staff.id),
   createdAt:           createdAt(),
   updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -197,7 +197,15 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           styles: (job.clusterStyles ?? []).map(k => clusterLabel(k as ClusterStyle)), savedAt: job.clusterSavedAt ? formatSydney(job.clusterSavedAt) : null }}
         questions={obQuestions.map(q => ({ id: q.id, question: q.question, answer: q.answer,
           answeredAt: q.answeredAt ? formatSydney(q.answeredAt) : null, askedBy: nameOf(q.askedBy) }))}
-        notes={obNotes.map(n => ({ id: n.id, body: n.body, photos: n.photos.map(x => x.url), when: formatSydney(n.createdAt) }))} />
+        notes={obNotes.map(n => ({ id: n.id, body: n.body, photos: n.photos.map(x => x.url), when: formatSydney(n.createdAt) }))}
+        email={{
+          doNotEmail,
+          welcomeSent: job.welcomeEmailSentAt ? formatSydney(job.welcomeEmailSentAt) : null, welcomeBy: nameOf(job.welcomeEmailSentBy),
+          // A question added after the welcome email (and after the last "Let the customer know")
+          needsNudge: !!job.welcomeEmailSentAt && !!job.onboardingQuestionAddedAt && job.onboardingQuestionAddedAt > job.welcomeEmailSentAt
+            && (!job.questionEmailSentAt || job.onboardingQuestionAddedAt > job.questionEmailSentAt),
+          nudgeSent: job.questionEmailSentAt ? formatSydney(job.questionEmailSentAt) : null, nudgeBy: nameOf(job.questionEmailSentBy),
+        }} />
 
       <QueuePanel jobId={job.id}
         waitingFor={openWait ? WAITING_FOR[openWait.reason] : null}

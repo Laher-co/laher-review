@@ -28,7 +28,9 @@ import { gemstoneDetails } from '@/lib/stone'
 import { isSettingChoice, settingPath } from '@/lib/setting'
 import { recordSettingChoice, setSettingImage } from '@/lib/setting-server'
 import { isClusterStyle, onboardingPath } from '@/lib/onboarding'
-import { notifyNewQuestion, postOnboardingLink, setClusterImage, setSettingQuestion, updateIrregularCluster } from '@/lib/onboarding-server'
+import { markQuestionAdded, notifyNewQuestion, onboardingUrl, postOnboardingLink, setClusterImage, setSettingQuestion, updateIrregularCluster } from '@/lib/onboarding-server'
+import { moreQuestionEmail, welcomeEmail } from '@/lib/customer-email-templates'
+import { firstNameOf } from '@/lib/onboarding'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
@@ -589,6 +591,7 @@ export async function addOnboardingQuestion(jobId: string, raw: string) {
   const job = await jobById(jobId)
   await db.insert(onboardingQuestions).values({ jobId, question, askedBy: session.staffId })
   await logEvent(jobId, session.staffId, 'onboarding_question_asked', { question })
+  await markQuestionAdded(jobId)
   await notifyNewQuestion(job, 'staff question')
   refreshOnboarding(job)
 }
@@ -599,6 +602,28 @@ export async function removeOnboardingQuestion(questionId: string) {
   if (!q) return
   await logEvent(q.jobId, session.staffId, 'onboarding_question_removed', { question: q.question, hadAnswer: !!q.answer })
   refreshOnboarding(await jobById(q.jobId))
+}
+
+/**
+ * "Send welcome email" / "Resend", or "Let the customer know" when a question
+ * was added after it. Only ever sent by a person from Studio. "Do not email"
+ * is checked live at send time (the email is skipped, and this says so).
+ */
+export async function sendOnboardingEmail(jobId: string, kind: 'welcome' | 'question') {
+  const session = await requireStaff()
+  const job = await jobById(jobId)
+  const { common } = await emailContext(job.id)
+  const c = { ...common, firstName: firstNameOf(job.customerName), welcomeUrl: onboardingUrl(job.publicCode), hasDesigner: !!job.designerId }
+  const r = await sendCustomerEmail(job.id, kind === 'welcome' ? 'welcome' : 'onboarding_question',
+    kind === 'welcome' ? welcomeEmail(c) : moreQuestionEmail(c))
+  if (!r.ok) throw new Error(`The email didn’t send: ${r.error}. It’s in Issues to retry.`)
+  if (r.value === 'skipped') throw new Error('Do not email is on, so nothing was sent. Contact the customer directly.')
+  const now = new Date()
+  await db.update(jobs).set(kind === 'welcome'
+    ? { welcomeEmailSentAt: now, welcomeEmailSentBy: session.staffId, updatedAt: now }
+    : { questionEmailSentAt: now, questionEmailSentBy: session.staffId, updatedAt: now }).where(eq(jobs.id, job.id))
+  await logEvent(job.id, session.staffId, kind === 'welcome' ? 'welcome_email_sent' : 'question_email_sent', { resend: kind === 'welcome' && !!job.welcomeEmailSentAt })
+  refreshOnboarding(job)
 }
 
 /** Ryan only: the image for one irregular cluster style (A–G), or null for the placeholder. */

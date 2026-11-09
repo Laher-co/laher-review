@@ -1,13 +1,19 @@
 // Sample data for every customer email: used by the Studio "Customer emails"
 // page and for sending test copies, so both show exactly what's sent.
 import {
-  approvedSummary, changesSummary, designReminder, laterVersionReminder, sizeReminder, staffReplied, versionReady, type EmailContent,
+  approvedSummary, changesSummary, designReminder, laterVersionReminder, moreQuestionEmail, sizeReminder, staffReplied, versionReady, welcomeEmail, type EmailContent,
 } from './customer-email-templates'
 
 export function sampleEmails(replyByEmail: boolean, pageUrl = 'https://review.laher.co/r/example'): { when: string; email: EmailContent }[] {
   const c = { firstName: 'Liam', designer: 'Heather', pageUrl, ringSizeNeeded: false, replyByEmail }
   const sized = { ...c, ringSizeNeeded: true, ringSizeHint: 'M' }
   return [
+    { when: 'Studio: “Send welcome email” (onboarding page)',
+      email: welcomeEmail({ ...c, welcomeUrl: `${pageUrl}/welcome`, hasDesigner: true }) },
+    { when: 'Studio: “Send welcome email” before a designer is assigned',
+      email: welcomeEmail({ ...c, designer: 'Your designer', welcomeUrl: `${pageUrl}/welcome`, hasDesigner: false }) },
+    { when: 'Studio: “Let the customer know” (a question added after the welcome email)',
+      email: moreQuestionEmail({ ...c, welcomeUrl: `${pageUrl}/welcome`, hasDesigner: true }) },
     { when: 'Publish: Version One (ring size unconfirmed, so it includes the gentle size line)',
       email: versionReady({ ...sized, versionTitle: 'Version One', versionNumber: 1, optionCount: 2, note: 'Two directions for you: a yellow-gold cathedral setting and a platinum low bezel.' }) },
     { when: 'Publish: the full design after an approved concept (“Your final design is ready”)',

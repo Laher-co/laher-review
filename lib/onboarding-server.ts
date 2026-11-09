@@ -20,6 +20,17 @@ export function onboardingUrl(publicCode: string) {
   return `${base}${onboardingPath(publicCode)}`
 }
 
+/** The job in LAHER Studio (where the welcome email is sent from). */
+export function studioJobUrl(jobId: string) {
+  const base = (process.env.APP_URL ?? 'https://review.laher.co').replace(/\/$/, '')
+  return `${base}/studio/jobs/${jobId}`
+}
+
+/** A question was switched on or added: Studio offers "Let the customer know" if the welcome email already went. */
+export async function markQuestionAdded(jobId: string) {
+  await db.update(jobs).set({ onboardingQuestionAddedAt: new Date() }).where(eq(jobs.id, jobId))
+}
+
 /** Why a card can't have an onboarding page, or null if it can. */
 export function onboardingSkipReason(card: TrelloCard) {
   if (hasLabel(card.labels, LABEL_OLD_SYSTEM)) return 'OLD SYSTEM card'
@@ -52,7 +63,7 @@ export async function postOnboardingLink(job: Job) {
     .where(and(eq(jobs.id, job.id), isNull(jobs.onboardingLinkPostedAt))).returning({ id: jobs.id })
   if (!claimed) return false
   const r = await tracked('trello_comment', job.id, 'Post the onboarding link on the Trello card',
-    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: onboardingLinkComment(onboardingUrl(job.publicCode)) } })
+    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: onboardingLinkComment(onboardingUrl(job.publicCode), studioJobUrl(job.id)) } })
   await logEvent(job.id, null, 'onboarding_link_posted', { ok: r.ok })
   return true
 }
@@ -79,6 +90,7 @@ export async function setSettingQuestion(job: Job, on: boolean, o: { staffId?: s
       })
     }
     await logEvent(job.id, o.staffId ?? null, `setting_question_${on ? 'on' : 'off'}`, { source: o.source })
+    if (on) await markQuestionAdded(job.id)
     if (on && job.onboardingLinkPostedAt) return notifyNewQuestion(job, 'setting question')
   }
   if (on && !job.onboardingLinkPostedAt) return postOnboardingLink(job)
@@ -117,7 +129,10 @@ export async function updateIrregularCluster(job: Job, change: { auto?: boolean;
   await db.update(jobs).set({ ...next, updatedAt: new Date() }).where(eq(jobs.id, job.id))
   const was = irregularClusterOn(job), now = irregularClusterOn(next)
   if (was !== now) await logEvent(job.id, staffId ?? null, `irregular_cluster_${now ? 'on' : 'off'}`, { source: change.auto !== undefined ? 'description' : 'studio' })
-  if (!was && now) await notifyNewQuestion(job, 'irregular cluster')
+  if (!was && now) {
+    await markQuestionAdded(job.id)
+    await notifyNewQuestion(job, 'irregular cluster')
+  }
 }
 
 // ── Cluster style images (Studio → Settings, Ryan only) ───────────────────────
