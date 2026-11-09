@@ -23,7 +23,7 @@ export async function moveToAlterationsForCustomer(job: { id: string; trelloCard
         : { moved: false as const, skipped: true as const, reason: r.skipped, currentList: r.currentList }
     }
     await logEvent(job.id, null, 'trello_move_failed', { stage: 'Alterations', trigger, error: t.error, issueId: t.issueId })
-    return { moved: false as const, reason: t.error, currentList: '', issueId: t.issueId }
+    return { moved: false as const, reason: t.error, currentList: '', issueId: t.issueId, retrying: t.retrying }
   } catch (err) {
     console.error('[trello] move to Alterations failed to log', err)
     return { moved: false as const, reason: 'Couldn’t move the card', currentList: '' }

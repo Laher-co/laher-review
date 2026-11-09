@@ -45,7 +45,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
     .map(e => ({ by: people.find(p => p.id === e.staffId)?.name ?? 'Studio', when: formatSydney(e.createdAt), note: (e.details as { note?: string | null }).note ?? null }))
   // What happened on Trello when each version was published / answered
-  type Outcome = { moved: boolean; from?: string; to?: string; reason?: string }
+  type Outcome = { moved: boolean; retrying?: boolean; from?: string; to?: string; reason?: string }
   const outcome = (types: string[]) => new Map(jobEvents.filter(e => types.includes(e.type)).map(e => {
     const d = e.details as { number?: number; version?: number; trello?: Outcome }
     return [d.number ?? d.version, d.trello] as const
@@ -193,7 +193,9 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           )}
           {t && (
             <p className={`mt-1 text-xs ${t.moved ? 'text-stone' : 'font-medium text-amber-800'}`}>
-              {!t.moved
+              {!t.moved && t.retrying
+                ? 'Trello was briefly unavailable, so the card hasn’t moved yet. It’s being retried automatically (about 15 minutes); check Issues if it doesn’t go through.'
+                : !t.moved
                 ? `Trello card not moved: ${t.reason}. Please move it by hand.`
                 : t.from === t.to ? `Trello card already in “${t.to}”.` : `Trello card moved to “${t.to}”.`}
             </p>
@@ -226,12 +228,14 @@ export default async function JobPage({ params }: { params: { id: string } }) {
 
 type DecisionRow = typeof decisions.$inferSelect
 
-function TrelloLine({ t }: { t?: { moved: boolean; skipped?: boolean; from?: string; to?: string; reason?: string } }) {
+function TrelloLine({ t }: { t?: { moved: boolean; retrying?: boolean; skipped?: boolean; from?: string; to?: string; reason?: string } }) {
   if (!t) return null
   return (
     <p className={`mt-1 text-xs ${t.moved || t.skipped ? 'text-stone' : 'font-medium text-amber-800'}`}>
       {t.skipped
         ? `Trello card left where it is: ${t.reason}.`
+        : !t.moved && t.retrying
+        ? 'Trello was briefly unavailable, so the card hasn’t moved yet. It’s being retried automatically (about 15 minutes); check Issues if it doesn’t go through.'
         : !t.moved
         ? `Trello card not moved: ${t.reason}. Please move it by hand.`
         : t.from === t.to ? `Trello card already in “${t.to}”.` : `Trello card moved to “${t.to}”.`}
@@ -241,7 +245,7 @@ function TrelloLine({ t }: { t?: { moved: boolean; skipped?: boolean; from?: str
 
 function DecisionCard({ decision: d, options, versionNumber, trello }: {
   decision: DecisionRow; options: { id: string; label: string }[]; versionNumber: number
-  trello?: { moved: boolean; skipped?: boolean; from?: string; to?: string; reason?: string }
+  trello?: { moved: boolean; retrying?: boolean; skipped?: boolean; from?: string; to?: string; reason?: string }
 }) {
   const approved = d.decision === 'approved'
   const option = options.find(o => o.id === d.optionId)

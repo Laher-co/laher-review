@@ -1,6 +1,7 @@
 {
   "regions": ["syd1"],
   "crons": [
-    { "path": "/api/cron/tick", "schedule": "*/15 * * * *" }
+    { "path": "/api/cron/tick", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/retries", "schedule": "*/5 * * * *" }
   ]
 }

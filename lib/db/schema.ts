@@ -11,7 +11,8 @@ export const issueKind        = pgEnum('issue_kind', [
   'trello_move', 'trello_comment', 'trello_attachment', 'trello_label', 'trello_fields', 'trello_list',
   'email_send', 'email_bounce', 'webhook', 'trello_webhook', 'email_inbound',
 ])
-export const issueStatus      = pgEnum('issue_status', ['open', 'resolved', 'ignored'])
+// 'retrying' = a Trello outage being retried automatically; not shown in the Issues panel until retries run out
+export const issueStatus      = pgEnum('issue_status', ['open', 'resolved', 'ignored', 'retrying'])
 export const jobStatus        = pgEnum('job_status', ['draft', 'in_review', 'changes_requested', 'approved', 'approved_size_needed', 'closed'])
 export const ringSizeStatus   = pgEnum('ring_size_status', ['unconfirmed', 'submitted', 'confirmed'])
 export const versionStatus    = pgEnum('version_status', ['draft', 'published'])
@@ -229,6 +230,9 @@ export const issues = pgTable('issues', {
   lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }).notNull().defaultNow(),
   resolvedAt:  timestamp('resolved_at', { withTimezone: true }),
   resolvedBy:  uuid('resolved_by').references(() => staff.id),
+  resolutionNote: text('resolution_note'),
+  autoRetries: integer('auto_retries').notNull().default(0),
+  nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
 }, t => [index('issues_open').on(t.status, t.createdAt)])
 
 // Small key/value store, e.g. when the daily digest last went out

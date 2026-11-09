@@ -24,7 +24,7 @@ export function IssueActions({ id, status, canRetry }: { id: string; status: 'op
           onClick={() => start(async () => {
             setNote(null)
             const res = await retryIssueAction(id)
-            setNote(res.ok ? 'Worked: resolved.' : `Still failing: ${res.error}`)
+            setNote(res.ok ? (res.note ? `Resolved. ${res.note}` : 'Worked: resolved.') : `Still failing: ${res.error}`)
           })}>
           {pending && <Spinner />} Retry
         </button>
@@ -33,7 +33,7 @@ export function IssueActions({ id, status, canRetry }: { id: string; status: 'op
         onClick={() => start(() => setIssueStatusAction(id, 'resolved'))}>Mark resolved</button>
       <button className={`${btn} text-stone underline`} disabled={pending}
         onClick={() => start(() => setIssueStatusAction(id, 'ignored'))}>Ignore</button>
-      {note && <span className={`text-sm ${note.startsWith('Worked') ? 'text-emerald-700' : 'text-red-700'}`}>{note}</span>}
+      {note && <span className={`text-sm ${note.startsWith('Worked') || note.startsWith('Resolved') ? 'text-emerald-700' : 'text-red-700'}`}>{note}</span>}
     </div>
   )
 }

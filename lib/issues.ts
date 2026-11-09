@@ -1,10 +1,12 @@
 import 'server-only'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, lte } from 'drizzle-orm'
 import { db, issues, jobs, webhookEvents, type IssueOperation } from './db'
 import { escapeHtml, sendEmail, staffEmailHtml, staffEmails } from './email'
 import { siteOrigin } from './jobs'
+import { formatSydney } from './format'
+import { AUTO_RETRIES, afterFailedRetry, isTrelloOutage, MOVE_OPERATIONS, RETRY_GAP_MINUTES } from './retry-rules'
 import {
-  addComment, attachUrl, ensureLabel, ensureList, getCard, moveCardToNamedList, moveCardToAlterations, moveCardToStage, removeLabel, writeRingSizeFields,
+  addComment, attachUrl, cardMovedSince, ensureLabel, ensureList, getCard, moveCardToNamedList, moveCardToAlterations, moveCardToStage, removeLabel, writeRingSizeFields,
 } from './trello'
 import type { Stage } from './trello-parse'
 
@@ -89,7 +91,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 // ── Tracking ──────────────────────────────────────────────────────────────────
 
-export type Tracked<T> = { ok: true; value: T } | { ok: false; error: string; issueId: string }
+export type Tracked<T> = { ok: true; value: T } | { ok: false; error: string; issueId: string; retrying: boolean }
 
 /**
  * Runs an outside action. If it fails, an issue is recorded (with what to
@@ -101,18 +103,71 @@ export async function tracked<T = unknown>(kind: Kind, jobId: string | null, sum
     return { ok: true, value: await runOperation(op) as T }
   } catch (err) {
     const issueId = await recordIssue({ kind, jobId, summary, operation: op, error: message(err) })
-    return { ok: false, error: message(err), issueId }
+    return { ok: false, error: message(err), issueId, retrying: isTrelloOutage(op, message(err)) }
   }
 }
 
 /** Records a failure (also used directly, e.g. for email bounces) and alerts. */
 export async function recordIssue(i: { kind: Kind; jobId: string | null; summary: string; operation: IssueOperation | null; error: string }) {
+  // A Trello outage (5xx) is retried automatically first: no panel entry or alert unless that fails
+  const outage = isTrelloOutage(i.operation, i.error)
   const [row] = await db.insert(issues).values({
     kind: i.kind, jobId: i.jobId, summary: i.summary, operation: i.operation, lastError: i.error,
+    ...(outage ? { status: 'retrying' as const, nextRetryAt: new Date(Date.now() + RETRY_GAP_MINUTES * 60_000) } : {}),
   }).returning()
-  console.error(`[issue] ${i.kind}: ${i.summary} — ${i.error}`)
-  await alertIssue(row.id)
+  console.error(`[issue] ${i.kind}: ${i.summary} — ${i.error}${outage ? ' (Trello outage: retrying automatically)' : ''}`)
+  if (!outage) await alertIssue(row.id)
   return row.id
+}
+
+/**
+ * Runs an issue's operation again. A card move is skipped if the card has
+ * changed list since the original action (staff or Zapier moved it on), and
+ * the reason is returned as the resolution note.
+ */
+async function rerun(row: typeof issues.$inferSelect): Promise<{ note: string | null }> {
+  const op = row.operation!
+  if (MOVE_OPERATIONS.has(op.type)) {
+    const moved = await cardMovedSince(String(op.args.cardId), row.createdAt)
+    if (moved) {
+      // Publishing's "Review App" label still matters (old Zap filter); only the move is skipped
+      if (op.type === 'trello.labelAndMove') await ensureLabel(await card(String(op.args.cardId)), String(op.args.label))
+      return { note: `Move skipped: the card had already moved on to “${moved.to}” (${formatSydney(moved.when)}${moved.by ? `, by ${moved.by}` : ''}).` }
+    }
+  }
+  await runOperation(op)
+  return { note: null }
+}
+
+/** Cron (every 5 minutes): retries Trello outages that are due, up to 3 times, then shows them in the panel. */
+export async function autoRetryIssues(now = new Date()) {
+  const due = await db.select().from(issues).where(and(eq(issues.status, 'retrying'), lte(issues.nextRetryAt, now)))
+  const log: string[] = []
+  for (const row of due) {
+    // Claim it so an overlapping run can't retry it twice
+    const [claimed] = await db.update(issues).set({ nextRetryAt: new Date(now.getTime() + 10 * 60_000) })
+      .where(and(eq(issues.id, row.id), eq(issues.status, 'retrying'), lte(issues.nextRetryAt, now))).returning()
+    if (!claimed || !row.operation) continue
+    const n = row.autoRetries + 1
+    try {
+      const { note } = await rerun(row)
+      await db.update(issues).set({
+        status: 'resolved', resolvedAt: new Date(), resolvedBy: null, nextRetryAt: null,
+        autoRetries: n, attempts: row.attempts + 1, lastAttemptAt: new Date(),
+        resolutionNote: note ?? `Trello was briefly unavailable; retried automatically and it worked (retry ${n} of ${AUTO_RETRIES}).`,
+      }).where(eq(issues.id, row.id))
+      log.push(`${row.summary}: resolved on retry ${n}${note ? ' (move skipped)' : ''}`)
+    } catch (err) {
+      const next = afterFailedRetry(n, isTrelloOutage(row.operation, message(err)))
+      await db.update(issues).set({
+        status: next.status, nextRetryAt: next.nextRetryAt, autoRetries: n,
+        attempts: row.attempts + 1, lastAttemptAt: new Date(), lastError: message(err),
+      }).where(eq(issues.id, row.id))
+      if (next.status === 'open') await alertIssue(row.id)
+      log.push(`${row.summary}: retry ${n} failed${next.status === 'open' ? ', now in the Issues panel' : ''}`)
+    }
+  }
+  return log
 }
 
 /** Emails the owner about one issue. A failed alert stays visible in the panel and the digest. */
@@ -147,12 +202,12 @@ export async function retryIssue(issueId: string, staffId: string) {
   if (!row) throw new Error('Issue not found.')
   if (!row.operation) throw new Error('This one can’t be retried automatically. Fix it by hand, then mark it resolved.')
   try {
-    await runOperation(row.operation)
+    const { note } = await rerun(row)
     await db.update(issues).set({
-      status: 'resolved', resolvedAt: new Date(), resolvedBy: staffId,
+      status: 'resolved', resolvedAt: new Date(), resolvedBy: staffId, resolutionNote: note, nextRetryAt: null,
       attempts: row.attempts + 1, lastAttemptAt: new Date(),
     }).where(eq(issues.id, issueId))
-    return { ok: true as const }
+    return { ok: true as const, note }
   } catch (err) {
     await db.update(issues).set({ attempts: row.attempts + 1, lastAttemptAt: new Date(), lastError: message(err) })
       .where(eq(issues.id, issueId))
@@ -172,5 +227,5 @@ export async function setIssueStatus(issueId: string, status: 'resolved' | 'igno
 export function moveOutcome(t: Tracked<unknown>) {
   return t.ok
     ? t.value as { moved: true; from: string; to: string }
-    : { moved: false as const, reason: t.error, currentList: '', issueId: t.issueId }
+    : { moved: false as const, reason: t.error, currentList: '', issueId: t.issueId, retrying: t.retrying }
 }

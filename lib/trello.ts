@@ -180,6 +180,17 @@ export async function moveCardToNamedList(cardId: string, listName: string): Pro
   return { moved: true, from: list.name, to: target.name }
 }
 
+/**
+ * Has the card changed list since this moment? Read from the card's own
+ * history, so it covers moves by staff, Zapier and the app alike.
+ */
+export async function cardMovedSince(cardId: string, since: Date) {
+  const actions = await trello<{ date: string; data: { listAfter?: { name: string } }; memberCreator?: { fullName: string } }[]>(
+    'GET', `/cards/${cardId}/actions?filter=updateCard:idList&since=${since.toISOString()}&limit=20&memberCreator_fields=fullName`)
+  const latest = actions.find(a => a.data.listAfter) // newest first
+  return latest ? { to: latest.data.listAfter!.name, when: new Date(latest.date), by: latest.memberCreator?.fullName ?? null } : null
+}
+
 /** Creates an open list on the board, unless one with exactly this name is already there. */
 export async function ensureList(boardId: string, name: string, pos: number) {
   const existing = (await getBoardListsWithPos(boardId)).find(l => l.name === name)
