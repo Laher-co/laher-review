@@ -77,3 +77,18 @@ describe('staff reply with photos', () => {
     expect(only.text).not.toContain('Jane wrote')
   })
 })
+
+describe('concept renders', () => {
+  it('the full design after a concept approval says "Your final design is ready"', () => {
+    const e = versionReady({ ...c, versionTitle: 'Version Three', versionNumber: 3, optionCount: 1, note: null, final: true })
+    expect(e.subject).toBe('Liam, your final design is ready')
+    expect(e.html).toContain('Your final design is ready')
+    expect((e.html.match(/display:inline-block;background:#4A3022/g) ?? []).length).toBe(1)
+  })
+  it('the approval email says what happens next', () => {
+    expect(approvedSummary({ ...c, what: 'Version Two', comments: null, sizeOutstanding: false, next: 'full_design' }).text)
+      .toContain('Heather will now build your full design, and we’ll share it with you for your final approval.')
+    expect(approvedSummary({ ...c, what: 'Version Two', comments: null, sizeOutstanding: false, next: 'finalising' }).text)
+      .toContain('Heather is now finalising your design')
+  })
+})

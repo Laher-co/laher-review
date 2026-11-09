@@ -63,3 +63,16 @@ describe('REQUIRES SOURCING', () => {
     expect(jobStage({ publishedAt: [...published, new Date('2026-11-04T00:00:00Z')], decisions: approved, ringSizeStatus: 'confirmed', overrides: o })).toBe('feedback_needed')
   })
 })
+
+describe('approved but held in Alterations', () => {
+  const published = [new Date('2026-11-01T00:00:00Z')]
+  const approved = [{ decision: 'approved' as const, sizeOutstanding: false, createdAt: new Date('2026-11-02T00:00:00Z') }]
+  it('concept: building the full design; side stones: finalising', () => {
+    expect(jobStage({ publishedAt: published, decisions: approved, ringSizeStatus: 'confirmed', hold: 'concept' })).toBe('approved_building')
+    expect(jobStage({ publishedAt: published, decisions: approved, ringSizeStatus: 'confirmed', hold: 'side_stones' })).toBe('approved_finalising')
+  })
+  it('sourcing shows first; once released it is approved', () => {
+    expect(jobStage({ publishedAt: published, decisions: approved, ringSizeStatus: 'confirmed', hold: 'side_stones', sourcing: 'approved' })).toBe('sourcing_approved')
+    expect(jobStage({ publishedAt: published, decisions: approved, ringSizeStatus: 'confirmed', hold: null })).toBe('approved')
+  })
+})

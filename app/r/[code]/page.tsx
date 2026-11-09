@@ -5,6 +5,7 @@ import { getJobByCode, loadVersions, type FullVersion } from '@/lib/jobs'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel } from '@/lib/feedback'
 import { jobStage, STAGE_COPY, type Stage } from '@/lib/stage'
+import { roundState } from '@/lib/approval'
 import { Wordmark } from '@/components/brand'
 import LightboxThumbs from '@/components/LightboxThumbs'
 import Gallery from './Gallery'
@@ -45,17 +46,19 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
     decisions: allDecisions,
     ringSizeStatus: job.ringSizeStatus,
     sourcing: job.sourcing,
+    hold: job.approvedHold,
     overrides: releases.map(r => ({ stage: (r.details as { stage: 'approved' | 'alterations' }).stage, at: r.createdAt })),
   })
   const [latest, ...older] = published
+  // One change request per round; once a full design is approved, no more buttons
+  const round = roundState(published.map(v => v.publishedAt), allDecisions)
 
-  // Shared by every version section. Nothing here locks after a response:
-  // customers can approve any version, request more changes, and (Phase 3)
-  // message the studio at every stage.
+  // Shared by every version section. Messages are open at every stage.
   const section = (v: FullVersion, isLatest: boolean) => (
     <VersionSection key={v.id} version={v} latest={isLatest}
       decisions={allDecisions.filter(d => d.versionId === v.id)} messages={thread(v.id)}
-      code={job.publicCode} designer={designer} ringSizeStatus={job.ringSizeStatus} />
+      code={job.publicCode} designer={designer} ringSizeStatus={job.ringSizeStatus}
+      round={round} concept={job.conceptRender} />
   )
 
   return (
@@ -124,6 +127,8 @@ const STAGE_STYLE: Record<Stage, string> = {
   approved_size_needed: 'bg-amber-800 text-white',
   sourcing_approved:    'bg-[#3F4A3A] text-ivory',
   sourcing_new_stone:   'bg-linen text-cocoa-dark',
+  approved_building:    'bg-[#3F4A3A] text-ivory',
+  approved_finalising:  'bg-[#3F4A3A] text-ivory',
 }
 
 function StageBanner({ stage, designer }: { stage: Stage; designer: string }) {
@@ -138,10 +143,16 @@ function StageBanner({ stage, designer }: { stage: Stage; designer: string }) {
   )
 }
 
-function VersionSection({ version: v, latest, decisions: ds, messages: msgs, code, designer, ringSizeStatus }: {
+function VersionSection({ version: v, latest, decisions: ds, messages: msgs, code, designer, ringSizeStatus, round, concept }: {
   version: FullVersion; latest: boolean; decisions: Decision[]; messages: ThreadMessage[]
   code: string; designer: string; ringSizeStatus: 'unconfirmed' | 'submitted' | 'confirmed'
+  round: ReturnType<typeof roundState>; concept: boolean
 }) {
+  const canApprove = round === 'open' || round === 'changes_sent'
+  const canRequestChanges = round === 'open'
+  const roundNote = round === 'approved' ? 'Your design is approved'
+    : round === 'concept_approved' ? `${designer} is now building your full design. You’ll be able to review it soon.`
+    : round === 'changes_sent' ? `Your changes are with ${designer}. You’ll be able to review the next version soon.` : null
   const multi = v.options.length > 1
   const title = versionTitle(v.number)
   return (
@@ -173,16 +184,23 @@ function VersionSection({ version: v, latest, decisions: ds, messages: msgs, cod
               )}
               <Gallery renders={o.renders.map(r => ({ id: r.id, url: r.blobUrl, width: r.width, height: r.height }))}
                 alt={`${title}${multi ? `, Option ${o.label}` : ''}`} />
-              <ApproveButton code={code} designer={designer} ringSizeStatus={ringSizeStatus}
-                version={{ id: v.id, title }} optionCount={v.options.length}
-                option={{ id: o.id, label: o.label, cover: o.renders[0]?.blobUrl ?? null }} />
+              {canApprove && (
+                <ApproveButton code={code} designer={designer} ringSizeStatus={ringSizeStatus}
+                  version={{ id: v.id, title }} optionCount={v.options.length} concept={concept}
+                  option={{ id: o.id, label: o.label, cover: o.renders[0]?.blobUrl ?? null }} />
+              )}
             </div>
           )
         })}
       </div>
 
-      <RequestChangesButton code={code} designer={designer} version={{ id: v.id, title }}
-        options={v.options.map(o => ({ id: o.id, label: o.label, renders: o.renders.map(r => ({ id: r.id, url: r.blobUrl })) }))} />
+      {canRequestChanges && (
+        <RequestChangesButton code={code} designer={designer} version={{ id: v.id, title }}
+          options={v.options.map(o => ({ id: o.id, label: o.label, renders: o.renders.map(r => ({ id: r.id, url: r.blobUrl })) }))} />
+      )}
+      {latest && roundNote && (
+        <p className="mt-6 rounded-2xl border border-cocoa/20 bg-linen px-5 py-4 text-center font-serif text-xl text-cocoa-dark">{roundNote}</p>
+      )}
 
       {ds.length > 0 && (
         <div className="mt-8 space-y-3">

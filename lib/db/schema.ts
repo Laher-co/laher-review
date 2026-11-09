@@ -68,6 +68,12 @@ export const jobs = pgTable('jobs', {
   sourcing:            text('sourcing').$type<'approved' | 'new_stone'>(),
   sourcingSince:       timestamp('sourcing_since', { withTimezone: true }),
   sourcingDesigner:    text('sourcing_designer'),    // whose funnel it came from
+  // Internal only: side stone sizes still to be confirmed (mirrors SIDE STONES NOT CONFIRMED)
+  sideStonesUnconfirmed: boolean('side_stones_unconfirmed').notNull().default(false),
+  // The published renders are a concept, not a full build (mirrors "Concept Renders")
+  conceptRender:       boolean('concept_render').notNull().default(false),
+  // Approved, but held in Alterations: building the full design, or confirming side stones
+  approvedHold:        text('approved_hold').$type<'concept' | 'side_stones'>(),
   createdBy:           uuid('created_by').references(() => staff.id),
   createdAt:           createdAt(),
   updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -82,6 +88,7 @@ export const versions = pgTable('versions', {
   designerNote: text('designer_note'),
   status:       versionStatus('status').notNull().default('draft'),
   publishedAt:  timestamp('published_at', { withTimezone: true }),
+  concept:      boolean('concept'),                 // answer at publish: concept render (null before this was asked)
   publishedBy:  uuid('published_by').references(() => staff.id),
   createdAt:    createdAt(),
 }, t => [uniqueIndex('versions_job_number').on(t.jobId, t.number)])
@@ -149,6 +156,7 @@ export const decisions = pgTable('decisions', {
   annotations: jsonb('annotations').$type<Annotation[]>().notNull().default([]),
   // Approved without a ring size: the card waits for staff to confirm one
   sizeOutstanding: boolean('size_outstanding').notNull().default(false),
+  concept:     boolean('concept').notNull().default(false),   // approval of a concept render
   // Generated once per submission in the browser, so a double-tap or retry
   // can't record the same response twice
   clientKey:   text('client_key').unique(),

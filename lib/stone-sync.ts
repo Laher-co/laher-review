@@ -4,6 +4,7 @@ import { db, followups, jobs, staff } from './db'
 import { logEvent } from './events'
 import { recordIssue, tracked } from './issues'
 import { getCard, type TrelloCard } from './trello'
+import { releaseHold } from './job-flags'
 import { parseDesignerList } from './trello-parse'
 import {
   gemstoneDetails, hasCaratTbc, hasLabel, isSourcingList, LABEL_DESIGN_APPROVED, LABEL_OLD_SYSTEM, LABEL_STONE, sourcingExit,
@@ -111,16 +112,22 @@ export async function handleSourcingMove(cardId: string, listBefore: string, lis
     return `issue: ${exit.issue}`
   }
   await resumeFollowups(job)
+  // An approval still held for the concept build or side stones goes back to
+  // Alterations as approved (not as new changes): the hold drives the banner
+  const heldApproval = exit === 'alterations' && !!job.approvedHold && job.sourcing === 'approved'
+  const backToChanges = exit === 'alterations' && !heldApproval
   await db.update(jobs).set({
     sourcing: null, sourcingSince: null, updatedAt: new Date(),
-    status: exit === 'alterations' ? 'changes_requested' : job.status === 'approved_size_needed' ? 'approved_size_needed' : 'approved',
+    status: backToChanges ? 'changes_requested' : job.status === 'approved_size_needed' ? 'approved_size_needed' : 'approved',
   }).where(eq(jobs.id, job.id))
   if (job.stoneNotSecured) await setStone(job, false, { source: 'sourcing', detailsSeen: gemstoneDetails(card.desc) })
-  if (exit === 'alterations') {
+  if (backToChanges) {
     await tracked('trello_label', job.id, `Remove the “${LABEL_DESIGN_APPROVED}” label`,
       { type: 'trello.removeLabel', args: { cardId, name: LABEL_DESIGN_APPROVED } })
   }
+  // Straight to Print Ready: side stones are taken as confirmed too
+  if (exit === 'print_ready' && job.approvedHold === 'side_stones') await releaseHold(job, 'sourcing_print_ready')
   // The customer page reads this: approved ("going into production") or back to alterations
-  await logEvent(job.id, null, 'sourcing_released', { stage: exit === 'alterations' ? 'alterations' : 'approved', listAfter })
-  return `out: ${exit}`
+  await logEvent(job.id, null, 'sourcing_released', { stage: backToChanges ? 'alterations' : 'approved', listAfter, heldApproval })
+  return `out: ${exit}${heldApproval ? ` (still held: ${job.approvedHold})` : ''}`
 }

@@ -6,6 +6,8 @@ import { getCard, getMyMemberId, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { syncDoNotEmail } from '@/lib/do-not-email'
 import { detectStone, handleSourcingMove, syncStoneFromLabel } from '@/lib/stone-sync'
 import { isSourcingList, LABEL_STONE } from '@/lib/stone'
+import { FLAGS, releaseHold, syncFlagFromLabel, type FlagKey } from '@/lib/job-flags'
+import { parseDesignerList } from '@/lib/trello-parse'
 import { eq } from 'drizzle-orm'
 import { db, jobs } from '@/lib/db'
 
@@ -68,6 +70,37 @@ export async function POST(request: Request) {
         summary: `Update “Stone not secured” from card ${a.data.card.name ?? a.data.card.id}`,
       })
       return NextResponse.json({ ok: true, failed: true })
+    }
+  }
+
+  // "SIDE STONES NOT CONFIRMED" or "Concept Renders" label added or removed in Trello: the switch follows
+  const flagKey = (Object.keys(FLAGS) as FlagKey[]).find(k => a.data.label?.name?.trim().toLowerCase() === FLAGS[k].label.toLowerCase())
+  if ((a.type === 'addLabelToCard' || a.type === 'removeLabelFromCard') && flagKey) {
+    try {
+      return NextResponse.json({ ok: true, result: await syncFlagFromLabel(a.data.card.id, flagKey) })
+    } catch (err) {
+      await recordIssue({
+        kind: 'trello_webhook', jobId: null, operation: null, error: err instanceof Error ? err.message : String(err),
+        summary: `Update “${FLAGS[flagKey].name}” from card ${a.data.card.name ?? a.data.card.id}`,
+      })
+      return NextResponse.json({ ok: true, failed: true })
+    }
+  }
+
+  // A person moved a held "side stones" approval from Alterations to the same designer's Print Ready: sizes confirmed
+  const before = parseDesignerList(a.data.listBefore?.name ?? ''), after = parseDesignerList(a.data.listAfter?.name ?? '')
+  if (a.type === 'updateCard' && before?.stage === 'Alterations' && after?.stage === 'Print Ready'
+      && before.designer.toLowerCase() === after.designer.toLowerCase()) {
+    try {
+      if (!(a.idMemberCreator && a.idMemberCreator === await getMyMemberId())) {
+        const [job] = await db.select().from(jobs).where(eq(jobs.trelloCardId, a.data.card.id))
+        if (job?.approvedHold === 'side_stones') await releaseHold(job, 'side_stones_confirmed')
+      }
+    } catch (err) {
+      await recordIssue({
+        kind: 'trello_webhook', jobId: null, operation: null, error: err instanceof Error ? err.message : String(err),
+        summary: `Release the side stones approval for card ${a.data.card.name ?? a.data.card.id}`,
+      })
     }
   }
 

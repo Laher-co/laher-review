@@ -94,7 +94,6 @@ export function RingSizeBar({ code, size, status }: { code: string; size: string
               </button>
               <button onClick={() => setOpen(false)} className="px-3 text-sm text-stone underline">Cancel</button>
             </div>
-            <p className="mt-3 text-xs text-stone">Our team will confirm it with you before production.</p>
           </div>
         )}
       </div>
@@ -161,6 +160,7 @@ export function ApproveButton(props: {
   version: { id: string; title: string }
   option: { id: string; label: string; cover: string | null }
   optionCount: number
+  concept?: boolean   // approving a concept render: the full design comes next
 }) {
   const [open, setOpen] = useState(false)
   const label = props.optionCount > 1 ? `Approve Option ${props.option.label}` : 'Approve this design'
@@ -172,7 +172,7 @@ export function ApproveButton(props: {
   )
 }
 
-function ApproveSheet({ code, designer, ringSizeStatus, version, option, optionCount, onClose }:
+function ApproveSheet({ code, designer, ringSizeStatus, version, option, optionCount, concept, onClose }:
   Parameters<typeof ApproveButton>[0] & { onClose(): void }) {
   const router = useRouter()
   const needsSize = ringSizeStatus === 'unconfirmed'
@@ -205,8 +205,10 @@ function ApproveSheet({ code, designer, ringSizeStatus, version, option, optionC
     return (
       <Sheet title="Approved" onClose={close}>
         <Done title="Thank you!" onClose={close} body={done === 'size_outstanding'
-          ? `We’ve recorded your approval of ${what}. Our team will be in touch to help you confirm your ring size, then ${designer} will prepare it for production.`
-          : `You’ve approved ${what}. ${designer} will prepare your design for production, and we’ll be in touch about the next steps.`} />
+          ? `We’ve recorded your approval of ${what}. Our team will be in touch to help you confirm your ring size${concept ? `, and ${designer} will build your full design for your final approval.` : `, then ${designer} will prepare it for production.`}`
+          : concept
+            ? `You’ve approved ${what}. ${designer} will now build your full design and share it with you for your final approval.`
+            : `You’ve approved ${what}. ${designer} will prepare your design for production, and we’ll be in touch about the next steps.`} />
       </Sheet>
     )
   }
@@ -228,7 +230,9 @@ function ApproveSheet({ code, designer, ringSizeStatus, version, option, optionC
         </div>
       )}
       <p className="font-serif text-2xl leading-snug text-cocoa-dark">You’re approving {what}</p>
-      <p className="mt-2 text-[15px] leading-relaxed text-stone">Once you confirm, {designer} will prepare it for production.</p>
+      <p className="mt-2 text-[15px] leading-relaxed text-stone">
+        {concept ? `Once you confirm, ${designer} will build your full design for your final approval.` : `Once you confirm, ${designer} will prepare it for production.`}
+      </p>
 
       {needsSize && (
         <div className="mt-6 rounded-xl border border-sand bg-white p-4">

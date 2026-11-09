@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
-  customerRepliedByEmail, logFollowupCall, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
+  customerRepliedByEmail, logFollowupCall, setJobFlag, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -216,15 +216,17 @@ export function DraftVersion({ jobId, version, title, doNotEmail }: {
 }) {
   const { pending, error, run } = useAction()
   const [note, setNote] = useState(version.designerNote ?? '')
+  const [concept, setConcept] = useState<boolean | null>(null)
   const renderCount = version.options.reduce((n, o) => n + o.renders.length, 0)
   const ready = version.options.every(o => o.renders.length > 0)
 
   function publish() {
+    if (concept === null) return
     const optionsText = version.options.length > 1 ? ` with ${version.options.length} options` : ''
-    if (!confirm(`Publish ${title}${optionsText}? The customer will be emailed${doNotEmail ? ' (not this one: “Do not email”)' : ''} and can see it straight away, and the Trello card moves to Revision.`)) return
+    if (!confirm(`Publish ${title}${optionsText} as ${concept ? 'a CONCEPT render' : 'a full build'}? The customer will be emailed${doNotEmail ? ' (not this one: “Do not email”)' : ''} and can see it straight away, and the Trello card moves to Revision.`)) return
     run(async () => {
       if (note !== (version.designerNote ?? '')) await saveVersionNote(version.id, note)
-      const res = await publishVersion(version.id)
+      const res = await publishVersion(version.id, concept)
       if (!res.ok) throw new Error(res.error)
     })
   }
@@ -266,11 +268,22 @@ export function DraftVersion({ jobId, version, title, doNotEmail }: {
           Delete draft
         </button>
         <div className="flex flex-col items-stretch gap-1 sm:items-end">
-          <button className={`${btnPrimary} px-6 py-3`} disabled={pending || !ready} onClick={publish}>
+          <fieldset className="mb-3">
+            <legend className="text-sm font-medium text-ink">Is this a concept render (not a full build)?</legend>
+            <div className="mt-1.5 flex gap-2">
+              {([true, false] as const).map(v => (
+                <button key={String(v)} type="button" aria-pressed={concept === v} onClick={() => setConcept(v)}
+                  className={`rounded-lg border px-4 py-2 text-sm ${concept === v ? 'border-cocoa bg-cocoa text-ivory' : 'border-sand bg-white text-cocoa'}`}>
+                  {v ? 'Yes, concept' : 'No, full build'}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <button className={`${btnPrimary} px-6 py-3`} disabled={pending || !ready || concept === null} onClick={publish}>
             {pending && <Spinner />} Publish {title}
           </button>
           <span className="text-xs text-stone">
-            {!ready ? 'Every option needs at least one render.' : `${renderCount} render${renderCount === 1 ? '' : 's'} ready`}
+            {!ready ? 'Every option needs at least one render.' : concept === null ? 'Answer the concept question to publish.' : `${renderCount} render${renderCount === 1 ? '' : 's'} ready`}
             {doNotEmail && ' · Do not email: customer won’t be emailed'}
           </span>
         </div>
@@ -601,6 +614,26 @@ export function StoneSwitch({ jobId, on }: { jobId: string; on: boolean }) {
         </span>
         {pending ? <Spinner /> : null}
         Stone not secured {on ? 'on' : 'off'}
+      </button>
+      {error && <p className="text-xs text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+/** "Side stones not confirmed" (internal) and "Concept render" switches; the Trello label follows. */
+export function FlagSwitch({ jobId, flag, on, label }: { jobId: string; flag: 'side_stones' | 'concept'; on: boolean; label: string }) {
+  const { pending, error, run } = useAction()
+  const tone = flag === 'side_stones' ? ['border-amber-300 bg-amber-50 text-amber-900', 'bg-amber-600'] : ['border-violet-300 bg-violet-50 text-violet-900', 'bg-violet-600']
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button type="button" role="switch" aria-checked={on} disabled={pending}
+        onClick={() => run(() => setJobFlag(jobId, flag, !on))}
+        className={`inline-flex items-center gap-2.5 rounded-full border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ${on ? tone[0] : 'border-sand bg-white text-cocoa'}`}>
+        <span className={`relative h-5 w-9 rounded-full transition-colors ${on ? tone[1] : 'bg-sand'}`}>
+          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+        </span>
+        {pending ? <Spinner /> : null}
+        {label} {on ? 'on' : 'off'}
       </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
