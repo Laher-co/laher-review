@@ -22,7 +22,8 @@ import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { getCard, getList, LABEL_AWAITING_SIZE } from '@/lib/trello'
 import { hasLabel, LABEL_DESIGN_APPROVED, LABEL_OLD_SYSTEM, SOURCING_LIST } from '@/lib/stone'
 import { enterSourcing } from '@/lib/stone-sync'
-import { approvalComment, approvalRoute, roundState } from '@/lib/approval'
+import { approvalComment, approvalRoute, roundState, sizeReleasesToPrintReady } from '@/lib/approval'
+import { moveToPrintReadyForSize } from '@/lib/size-release'
 import { parseDesignerList } from '@/lib/trello-parse'
 import type { Stroke } from '@/components/DrawingCanvas'
 
@@ -65,18 +66,21 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
   }).where(eq(jobs.id, job.id)).returning()
 
   const cardId = job.trelloCardId
+  const toPrintReady = sizeReleasesToPrintReady(job)
   await tracked('trello_fields', job.id, `Set the Finger Size fields to ${size} (Confirmed)`,
     { type: 'trello.ringFields', args: { cardId, size, status: 'Confirmed' } })
   for (const name of ['Finger Size TBC', LABEL_AWAITING_SIZE]) {
     await tracked('trello_label', job.id, `Remove the “${name}” label`, { type: 'trello.removeLabel', args: { cardId, name } })
   }
   await tracked('trello_comment', job.id, 'Post the customer’s ring size comment', {
-    type: 'trello.comment', args: { cardId, text: `**FINGER SIZE CONFIRMED BY CUSTOMER: ${size}**` },
+    type: 'trello.comment', args: { cardId, text: `**FINGER SIZE CONFIRMED BY CUSTOMER: ${size}**${toPrintReady ? '\n\nThe approved design can now go ahead: moving to Print Ready.' : ''}` },
   })
+  // Approved with "Not sure of my size": now it can go to Print Ready
+  const trello = await moveToPrintReadyForSize(job, 'the customer')
 
   await stopFollowups(job.id, ['design', 'size'], 'Customer sent their ring size')
   await alertCustomerAction(job.id, 'Ring size confirmed by the customer', `The customer’s ring size is ${size}. Nothing to do unless it looks wrong (you can change it in the studio).`)
-  await logEvent(job.id, null, 'ring_size_confirmed', { size, by: 'customer' })
+  await logEvent(job.id, null, 'ring_size_confirmed', { size, by: 'customer', trello })
   await emitWebhook(job.id, 'ring_size_confirmed', { ...jobPayload(updated, designerName), actor: { type: 'customer' } })
   revalidatePath(`/r/${code}`)
   return { ok: true }
@@ -181,7 +185,7 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   const cardId = job.trelloCardId
   const card = approved ? await getCard(cardId).catch(() => null) : null
   const oldSystem = card ? hasLabel(card.labels, LABEL_OLD_SYSTEM) : false
-  const flags = { stoneNotSecured: job.stoneNotSecured, conceptRender: job.conceptRender, sideStonesUnconfirmed: job.sideStonesUnconfirmed, oldSystem }
+  const flags = { stoneNotSecured: job.stoneNotSecured, conceptRender: job.conceptRender, sideStonesUnconfirmed: job.sideStonesUnconfirmed, oldSystem, sizeOutstanding }
   const route = approved ? approvalRoute(flags) : null
   const toSourcing = route?.to === 'sourcing'
   const cardDesigner = (card ? parseDesignerList((await getListName(card.idList)) ?? '')?.designer : null) ?? designerName ?? 'the designer'
@@ -216,7 +220,9 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   if (notes.length) blocks.push(notes.join('\n'))
   if (comments) blocks.push(`Comments: ${comments}`)
   if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (confirmed by the customer)`)
-  if (sizeOutstanding) blocks.push(`Customer isn’t sure of their ring size: ${route?.to === 'print_ready' ? 'moved to Print Ready with' : 'added'} the “${LABEL_AWAITING_SIZE}” label. Set the size in the studio to clear it.`)
+  if (sizeOutstanding) blocks.push(route?.to === 'stay'
+    ? `Customer isn’t sure of their ring size: card left here with the “${LABEL_AWAITING_SIZE}” label. The app moves it to Print Ready once a size is entered (by the customer, in the studio or on this card).`
+    : `Customer isn’t sure of their ring size: added the “${LABEL_AWAITING_SIZE}” label. Don’t move it to Print Ready until the size is in.`)
   if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
   blocks.push(`Studio: ${studioLink(job.id)}`)
   await tracked('trello_comment', job.id, `Post “${heading}” on the Trello card`,
@@ -244,8 +250,10 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
       : route?.to === 'alterations'
         ? moveOutcome(await tracked('trello_move', job.id, `Move the card to Alterations (${heading}, ${route.hold === 'concept' ? 'concept render' : 'side stones to confirm'})`,
             { type: 'trello.move', args: { cardId, stage: 'Alterations' } }))
-        : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
-            { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
+        : route?.to === 'stay'
+          ? { moved: false as const, reason: 'Waiting on the finger size: card stays where it is', currentList: '' }
+          : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
+              { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
   if (toSourcing && trello.moved) await enterSourcing(job.id, 'approved', cardDesigner, 'app')
   if (sizeOutstanding) {
     await tracked('trello_label', job.id, `Add the “${LABEL_AWAITING_SIZE}” label`,

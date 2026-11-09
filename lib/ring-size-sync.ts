@@ -2,7 +2,9 @@ import 'server-only'
 import { eq } from 'drizzle-orm'
 import { db, jobs, staff } from './db'
 import { emitWebhook, logEvent } from './events'
-import { moveOutcome, tracked } from './issues'
+import { tracked } from './issues'
+import { sizeReleasesToPrintReady } from './approval'
+import { moveToPrintReadyForSize } from './size-release'
 import { jobPayload } from './payload'
 import { answerWaiting } from './waiting'
 import { stopFollowups } from './followups'
@@ -59,12 +61,15 @@ export async function syncRingSizeFromCard(cardId: string, source: SizeSource) {
   }
   let trello = null
   if (releasesApproval) {
+    const toPrintReady = sizeReleasesToPrintReady(job)
     await tracked('trello_comment', job.id, 'Post the ring size confirmation comment', {
       type: 'trello.comment',
-      args: { cardId: card.id, text: `**RING SIZE CONFIRMED: ${reading.size}** (on Trello)\n\nThe approved design can now go ahead: moving to Print Ready.` },
+      args: { cardId: card.id, text: `**RING SIZE CONFIRMED: ${reading.size}** (on Trello)\n\nThe approved design can now go ahead${toPrintReady ? ': moving to Print Ready.' : '.'}` },
     })
-    trello = moveOutcome(await tracked('trello_move', job.id, 'Move the approved card to Print Ready (size confirmed on Trello)',
-      { type: 'trello.move', args: { cardId: card.id, stage: 'Print Ready' } }))
+    await tracked('trello_label', job.id, 'Remove the “Awaiting Finger Size” label',
+      { type: 'trello.removeLabel', args: { cardId: card.id, name: 'Awaiting Finger Size' } })
+    // Not while sourcing the stone or held in Alterations (staff move those on)
+    trello = await moveToPrintReadyForSize(job, 'Trello')
   }
 
   const from = { size: job.ringSize, status: job.ringSizeStatus }
