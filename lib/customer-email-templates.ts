@@ -15,6 +15,35 @@ export type Common = {
   replyByEmail?: boolean        // replies to this email come back into the app
 }
 
+import { LOGO } from './brand-assets'
+
+/**
+ * Heading styles for customer emails (Ryan is choosing one). 'classic' is the
+ * current one. Email apps can't all load web fonts, so each has a safe fallback.
+ */
+export type HeadingStyle = 'classic' | 'playfair' | 'spaced' | 'centred'
+const PLAYFAIR = `'Playfair Display',Georgia,'Times New Roman',serif`
+function headingHtml(text: string, style: HeadingStyle) {
+  const t = esc(text)
+  if (style === 'playfair') {
+    return `<h1 style="font-family:${PLAYFAIR};font-weight:400;font-size:30px;line-height:1.2;letter-spacing:.2px;color:#36231A;margin:0 0 22px">${t}</h1>`
+  }
+  if (style === 'spaced') {
+    return `<h1 style="font-family:Helvetica,Arial,sans-serif;font-weight:400;font-size:15px;line-height:1.5;letter-spacing:.32em;text-transform:uppercase;color:#36231A;margin:0 0 10px">${t}</h1>
+  <div style="width:44px;height:1px;background:#B8955E;margin:0 0 24px;line-height:1px;font-size:1px">&nbsp;</div>`
+  }
+  if (style === 'centred') {
+    return `<div style="border-top:1px solid #E4D9CB;border-bottom:1px solid #E4D9CB;padding:18px 0;margin:0 0 24px;text-align:center">
+    <h1 style="font-family:${PLAYFAIR};font-style:italic;font-weight:400;font-size:28px;line-height:1.25;color:#36231A;margin:0">${t}</h1></div>`
+  }
+  return `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:normal;font-size:26px;line-height:1.25;color:#36231A;margin:0 0 18px">${t}</h1>`
+}
+
+/** The logo space at the top: the logo image once it's added, the wordmark until then. */
+const logoHtml = () => LOGO.emailUrl
+  ? `<img src="${LOGO.emailUrl}" width="${LOGO.emailWidth}" height="${Math.round(LOGO.emailWidth * 436 / 1200)}" alt="${esc(LOGO.alt)}" style="display:block;border:0;outline:none;width:${LOGO.emailWidth}px;height:auto;margin:0 0 32px">`
+  : `<p style="font-family:Georgia,'Times New Roman',serif;letter-spacing:.32em;font-size:20px;color:#36231A;margin:0 0 28px">LAHER</p>`
+
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const around = (hint?: string | null) =>
   hint ? (/^(around|about|approx)/i.test(hint) ? ` (we’ve noted ${hint})` : ` (we’ve noted around ${hint})`) : ''
@@ -28,6 +57,7 @@ function layout(c: Common, o: {
   button: { label: string; href?: string }
   skipRingLine?: boolean
   team?: boolean                // signed by the studio (no designer assigned yet)
+  headingStyle?: HeadingStyle
 }) {
   const ringLine = c.ringSizeNeeded && !o.skipRingLine
   const href = o.button.href ?? c.pageUrl
@@ -38,11 +68,14 @@ function layout(c: Common, o: {
     : `If you’d like to reply, please leave a note on <a href="${c.pageUrl}" style="color:#4A3022">your design page</a> so ${who} sees it straight away.`
   const signOff = o.team ? 'The LAHER studio' : `${c.designer} & the LAHER studio`
 
-  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"></head>
+  const style = o.headingStyle ?? 'classic'
+  const fontLink = style === 'playfair' || style === 'centred'
+    ? '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet">' : ''
+  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">${fontLink}</head>
 <body style="margin:0;padding:0;background:#F8F4EE;-webkit-text-size-adjust:100%">
 <div style="max-width:560px;margin:0 auto;padding:32px 22px;font-family:Helvetica,Arial,sans-serif;color:#2B211B;font-size:16px;line-height:1.6">
-  <p style="font-family:Georgia,'Times New Roman',serif;letter-spacing:.32em;font-size:20px;color:#36231A;margin:0 0 28px">LAHER</p>
-  <h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:normal;font-size:26px;line-height:1.25;color:#36231A;margin:0 0 18px">${esc(o.heading)}</h1>
+  ${logoHtml()}
+  ${headingHtml(o.heading, style)}
   <p style="margin:0 0 14px">Hi ${esc(c.firstName)},</p>
   ${o.paragraphs.map(p => `<p style="margin:0 0 14px">${p}</p>`).join('\n  ')}
   ${o.quote ? `<div style="margin:6px 0 18px;padding:14px 16px;background:#F1EAE0;border-radius:10px"><p style="margin:0 0 4px;font-size:13px;color:#7A5A47">${esc(o.quote.label)}</p><div style="white-space:pre-line">${esc(o.quote.text)}</div></div>` : ''}
@@ -73,18 +106,19 @@ function layout(c: Common, o: {
 // ── Onboarding (sent from Studio, never automatic) ────────────────────────────
 
 /** "Send welcome email": thank them, and a few quick details on their welcome page. */
-export function welcomeEmail(c: Common & { welcomeUrl: string; hasDesigner: boolean }): EmailContent {
+export function welcomeEmail(c: Common & { welcomeUrl: string; hasDesigner: boolean; headingStyle?: HeadingStyle }): EmailContent {
   return {
     subject: c.firstName ? `Welcome to LAHER Bespoke, ${c.firstName}` : 'Welcome to LAHER Bespoke',
     ...layout(c, {
       heading: 'Welcome to LAHER Bespoke',
       paragraphs: [
-        'Thank you so much for choosing LAHER. We’re so excited to start creating your ring with you.',
-        'Before we begin, a few quick details will help us get your design just right. It only takes a few minutes, and you can come back to it whenever suits you.',
+        'Thank you so much for choosing LAHER. We’re so excited to start creating your piece with you.',
+        'Before we begin, a few quick details will help us get your design just right.',
       ],
       button: { label: 'Open your welcome page', href: c.welcomeUrl },
       skipRingLine: true,
       team: !c.hasDesigner,
+      headingStyle: c.headingStyle,
     }),
   }
 }

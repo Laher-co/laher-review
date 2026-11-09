@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
-import { db, decisions, escalations, events, followups, messages, onboardingNotes, onboardingQuestions, staff, waiting } from '@/lib/db'
+import { requireStaff } from '@/lib/auth'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { db, decisions, escalations, events, followups, internalNotes, messages, onboardingNotes, onboardingQuestions, staff, waiting } from '@/lib/db'
 import { clusterLabel, irregularClusterOn, onboardingProgress, sizeUnconfirmed, type ClusterStyle } from '@/lib/onboarding'
 import { onboardingUrl } from '@/lib/onboarding-server'
 import { SETTING_COPY } from '@/lib/setting'
@@ -8,7 +9,7 @@ import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
-import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, FlagSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, OnboardingPanel, StaffThread, type StaffThreadMessage } from './client'
+import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, FlagSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, OnboardingPanel, InternalNotes, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
@@ -17,11 +18,12 @@ import LightboxThumbs from '@/components/LightboxThumbs'
 export const metadata = { title: 'Job — LAHER Studio' }
 
 export default async function JobPage({ params }: { params: { id: string } }) {
+  const session = await requireStaff()
   const row = await getJob(params.id).catch(() => null)
   if (!row) notFound()
   const { job, designerName } = row
 
-  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages, [openWait], [openEscalation], openFollowups, obQuestions, obNotes] = await Promise.all([
+  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages, [openWait], [openEscalation], openFollowups, obQuestions, obNotes, staffNotes] = await Promise.all([
     loadVersions(job.id),
     db.select({ id: staff.id, name: staff.name }).from(staff),
     // Read live so a "Do not email" label added in Trello shows straight away
@@ -35,6 +37,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     db.select().from(followups).where(and(eq(followups.jobId, job.id), inArray(followups.status, ['active', 'requires_call', 'follow_up']))),
     db.select().from(onboardingQuestions).where(eq(onboardingQuestions.jobId, job.id)).orderBy(asc(onboardingQuestions.createdAt)),
     db.select().from(onboardingNotes).where(eq(onboardingNotes.jobId, job.id)).orderBy(asc(onboardingNotes.createdAt)),
+    db.select().from(internalNotes).where(eq(internalNotes.jobId, job.id)).orderBy(desc(internalNotes.createdAt)),
   ])
   const now = new Date()
   const WAITING_FOR = { message: 'a reply to a message', decision: 'a response to their feedback', ring_size: 'their ring size to be confirmed' } as const
@@ -110,12 +113,13 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           styles: (job.clusterStyles ?? []).map(k => clusterLabel(k as ClusterStyle)),
           when: job.clusterSavedAt ? formatSydney(job.clusterSavedAt) : null } : null}
         questions={obQuestions.map(q => ({ id: q.id, question: q.question, answer: q.answer, when: q.answeredAt ? formatSydney(q.answeredAt) : null }))}
-        notes={obNotes.map(n => ({ id: n.id, body: n.body, photos: n.photos.map(x => x.url), when: formatSydney(n.createdAt) }))} />
+        notes={obNotes.map(n => ({ id: n.id, body: n.body, photos: n.photos.map(x => x.url), when: formatSydney(n.createdAt) }))}
+        latestNote={staffNotes[0] ? { body: staffNotes[0].body, author: nameOf(staffNotes[0].authorId), when: formatSydney(staffNotes[0].createdAt) } : null} />
 
       {/* Internal only: never shown to the customer */}
       {job.stoneNotSecured && (
         <div role="alert" className="rounded-2xl border-2 border-red-700 bg-red-700 px-5 py-5 text-white shadow-sm sm:px-6">
-          <p className="text-lg font-bold uppercase tracking-wide sm:text-2xl">Stone not secured</p>
+          <p className="text-lg font-bold uppercase tracking-wide sm:text-2xl">Centre stone not secured</p>
           <p className="mt-1 text-base sm:text-lg">Centre stone still to be sourced.</p>
         </div>
       )}
@@ -206,6 +210,12 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             && (!job.questionEmailSentAt || job.onboardingQuestionAddedAt > job.questionEmailSentAt),
           nudgeSent: job.questionEmailSentAt ? formatSydney(job.questionEmailSentAt) : null, nudgeBy: nameOf(job.questionEmailSentBy),
         }} />
+
+      <div id="internal-notes" className="scroll-mt-6" />
+      <InternalNotes jobId={job.id} notes={staffNotes.map(n => ({
+        id: n.id, body: n.body, author: nameOf(n.authorId), when: formatSydney(n.createdAt),
+        edited: n.editedAt ? formatSydney(n.editedAt) : null, mine: n.authorId === session.staffId,
+      }))} />
 
       <QueuePanel jobId={job.id}
         waitingFor={openWait ? WAITING_FOR[openWait.reason] : null}
@@ -340,12 +350,13 @@ function DecisionCard({ decision: d, options, versionNumber, trello }: {
 }
 
 /** "Brief": everything the customer has told us up front, with when each was submitted. */
-function Brief({ size, setting, cluster, questions, notes }: {
+function Brief({ size, setting, cluster, questions, notes, latestNote }: {
   size: { value: string | null; status: string; when: string | null; by: string | null; notSure: boolean }
   setting: { choice: string | null; when: string | null; by: string | null } | null
   cluster: { styles: string[]; when: string | null } | null
   questions: { id: string; question: string; answer: string | null; when: string | null }[]
   notes: { id: string; body: string; photos: string[]; when: string }[]
+  latestNote: { body: string; author: string; when: string } | null
 }) {
   const dt = 'text-xs uppercase tracking-widest text-cocoa-light'
   const when = (w: string | null) => w ? <span className="ml-1.5 text-xs text-stone">· {w}</span> : null
@@ -391,6 +402,13 @@ function Brief({ size, setting, cluster, questions, notes }: {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {latestNote && (
+        <div className="mt-5 border-t border-sand pt-4">
+          <p className={dt}>Latest internal note <a href="#internal-notes" className="ml-1 normal-case tracking-normal text-cocoa underline">all notes</a></p>
+          <p className="mt-1 whitespace-pre-line text-sm text-ink">{latestNote.body}</p>
+          <p className="mt-0.5 text-xs text-stone">{latestNote.author} · {latestNote.when}</p>
         </div>
       )}
       {notes.length > 0 && (

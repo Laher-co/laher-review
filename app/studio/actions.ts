@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { del } from '@vercel/blob'
-import { db, escalations, jobs, messages, onboardingQuestions, options, renders, staff, versions, waiting } from '@/lib/db'
+import { db, escalations, internalNotes, jobs, messages, onboardingQuestions, options, renders, staff, versions, waiting } from '@/lib/db'
 import { checkStaffPassword, requireStaff } from '@/lib/auth'
 import { SESSION_COOKIE, SESSION_DAYS, signSession } from '@/lib/session'
 import { emitWebhook, logEvent } from '@/lib/events'
@@ -635,6 +635,41 @@ export async function saveClusterImage(style: string, image: { url: string; path
   if (replaced && replaced.url !== image?.url) await del(replaced.url).catch(() => {})
   await logEvent(null, session.staffId, 'cluster_image_changed', { style, removed: !image })
   revalidatePath('/studio/settings')
+}
+
+// ── Internal notes (staff only) ───────────────────────────────────────────────
+
+/** A staff note on the job: never shown to the customer, emailed or posted to Trello. */
+export async function addInternalNote(jobId: string, raw: string) {
+  const session = await requireStaff()
+  const body = raw.trim().slice(0, 8000)
+  if (!body) throw new Error('Write the note first.')
+  await db.insert(internalNotes).values({ jobId, authorId: session.staffId, body })
+  revalidatePath(`/studio/jobs/${jobId}`)
+}
+
+/** Only the note's author can edit or delete it. */
+async function ownNote(noteId: string, staffId: string) {
+  const [n] = await db.select().from(internalNotes).where(eq(internalNotes.id, noteId))
+  if (!n) throw new Error('Note not found.')
+  if (n.authorId !== staffId) throw new Error('Only the person who wrote this note can change it.')
+  return n
+}
+
+export async function editInternalNote(noteId: string, raw: string) {
+  const session = await requireStaff()
+  const n = await ownNote(noteId, session.staffId)
+  const body = raw.trim().slice(0, 8000)
+  if (!body) throw new Error('The note can’t be empty (delete it instead).')
+  await db.update(internalNotes).set({ body, editedAt: new Date() }).where(eq(internalNotes.id, n.id))
+  revalidatePath(`/studio/jobs/${n.jobId}`)
+}
+
+export async function deleteInternalNote(noteId: string) {
+  const session = await requireStaff()
+  const n = await ownNote(noteId, session.staffId)
+  await db.delete(internalNotes).where(eq(internalNotes.id, n.id))
+  revalidatePath(`/studio/jobs/${n.jobId}`)
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────

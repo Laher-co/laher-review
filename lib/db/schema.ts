@@ -316,3 +316,14 @@ export const onboardingNotes = pgTable('onboarding_notes', {
   photos:    jsonb('photos').$type<MessageAttachment[]>().notNull().default([]),
   createdAt: createdAt(),
 }, t => [index('onboarding_notes_job').on(t.jobId, t.createdAt)])
+
+// ── Internal notes (staff only: never shown to the customer or posted to Trello) ──
+
+export const internalNotes = pgTable('internal_notes', {
+  id:        uuid('id').primaryKey().defaultRandom(),
+  jobId:     uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+  authorId:  uuid('author_id').notNull().references(() => staff.id),
+  body:      text('body').notNull(),
+  createdAt: createdAt(),
+  editedAt:  timestamp('edited_at', { withTimezone: true }),
+}, t => [index('internal_notes_job').on(t.jobId, t.createdAt)])

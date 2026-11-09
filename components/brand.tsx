@@ -1,9 +1,13 @@
+import { LOGO } from '@/lib/brand-assets'
 import Link from 'next/link'
 
+/** The LAHER logo (or the wordmark in its place until the logo file is added). */
 export function Wordmark({ href, className = '' }: { href?: string; className?: string }) {
-  const mark = (
-    <span className={`font-serif text-[1.35rem] tracking-[0.32em] text-cocoa-dark ${className}`}>LAHER</span>
-  )
+  const mark = LOGO.headerSrc
+    // eslint-disable-next-line @next/next/no-img-element
+    ? <img src={LOGO.headerSrc} alt={LOGO.alt} width={Math.round(LOGO.headerHeight * 1200 / 436)} height={LOGO.headerHeight}
+        style={{ height: LOGO.headerHeight, width: 'auto' }} className={`block ${className}`} />
+    : <span className={`font-serif text-[1.35rem] tracking-[0.32em] text-cocoa-dark ${className}`}>LAHER</span>
   return href ? <Link href={href}>{mark}</Link> : mark
 }
 

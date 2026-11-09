@@ -113,6 +113,13 @@
       "when": 1794262351652,
       "tag": "0015_welcome_email",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794264658498,
+      "tag": "0016_internal_notes",
+      "breakpoints": true
     }
   ]
 }

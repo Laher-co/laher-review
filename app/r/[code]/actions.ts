@@ -332,7 +332,7 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   const trello = !approved
     ? await moveToAlterationsForCustomer(job, heading)
     : toSourcing
-      ? moveOutcome(await tracked('trello_move', job.id, `Move the card to ${SOURCING_LIST} (${heading}, stone not secured)`,
+      ? moveOutcome(await tracked('trello_move', job.id, `Move the card to ${SOURCING_LIST} (${heading}, centre stone not secured)`,
           { type: 'trello.toList', args: { cardId, list: SOURCING_LIST } }))
       : route?.to === 'alterations'
         ? moveOutcome(await tracked('trello_move', job.id, `Move the card to Alterations (${heading}, ${route.hold === 'concept' ? 'concept render' : 'side stones to confirm'})`,

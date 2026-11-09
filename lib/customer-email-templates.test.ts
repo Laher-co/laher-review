@@ -98,7 +98,8 @@ describe('onboarding emails', () => {
   it('welcome: warm subject, one button to the welcome page, no ring size line', () => {
     const e = welcomeEmail({ ...w, hasDesigner: true })
     expect(e.subject).toBe('Welcome to LAHER Bespoke, Liam')
-    expect(e.text).toContain('Thank you so much for choosing LAHER')
+    expect(e.text).toContain('start creating your piece with you')
+    expect(e.text).not.toContain('It only takes a few minutes')
     expect(e.text).toContain('a few quick details will help us get your design just right')
     expect((e.html.match(/display:inline-block;background:#4A3022/g) ?? []).length).toBe(1)
     expect(e.html).toContain('href="https://review.laher.co/r/abc/welcome"')
@@ -118,6 +119,18 @@ describe('onboarding emails', () => {
   it('never sound urgent', () => {
     for (const e of [welcomeEmail({ ...w, hasDesigner: true }), moreQuestionEmail({ ...w, hasDesigner: false })]) {
       expect(e.text).not.toMatch(/\b(last|final)\b|deadline|urgent|asap|hurry/i)
+    }
+  })
+})
+
+describe('email heading styles', () => {
+  it('each style renders the heading once, with the logo above it', () => {
+    const w = { ...c, welcomeUrl: 'u', hasDesigner: true }
+    for (const headingStyle of ['classic', 'playfair', 'spaced', 'centred'] as const) {
+      const e = welcomeEmail({ ...w, headingStyle })
+      expect(e.html.match(/<h1/g)?.length).toBe(1)
+      expect(e.html.indexOf('brand/laher-logo.png')).toBeGreaterThan(-1)
+      expect(e.html.indexOf('brand/laher-logo.png')).toBeLessThan(e.html.indexOf('<h1'))
     }
   })
 })

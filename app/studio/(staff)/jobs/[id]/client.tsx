@@ -7,6 +7,7 @@ import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
   customerRepliedByEmail, logFollowupCall, setJobFlag, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
   removeOption, removeRender, saveVersionNote, setSettingChoiceAction,
+  addInternalNote, deleteInternalNote, editInternalNote,
   addOnboardingQuestion, postOnboardingLinkAction, removeOnboardingQuestion, sendOnboardingEmail, setIrregularClusterAction, setSettingQuestionAction,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
@@ -545,7 +546,7 @@ export function DoNotEmailSwitch({ jobId, on }: { jobId: string; on: boolean }) 
           <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
         </span>
         {pending ? <Spinner /> : null}
-        Do not email {on ? 'on' : 'off'}
+        Do not email
       </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
@@ -615,7 +616,7 @@ export function StoneSwitch({ jobId, on }: { jobId: string; on: boolean }) {
           <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
         </span>
         {pending ? <Spinner /> : null}
-        Stone not secured {on ? 'on' : 'off'}
+        Centre stone not secured
       </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
@@ -635,7 +636,7 @@ export function FlagSwitch({ jobId, flag, on, label }: { jobId: string; flag: 's
           <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
         </span>
         {pending ? <Spinner /> : null}
-        {label} {on ? 'on' : 'off'}
+        {label}
       </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
@@ -651,7 +652,7 @@ function MiniSwitch({ on, disabled, onClick, label }: { on: boolean; disabled?: 
       <span className={`relative h-5 w-9 rounded-full transition-colors ${on ? 'bg-cocoa' : 'bg-sand'}`}>
         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
       </span>
-      {label} {on ? 'on' : 'off'}
+      {label}
     </button>
   )
 }
@@ -831,6 +832,63 @@ export function OnboardingPanel(p: OnboardingPanelProps) {
         </div>
       )}
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+    </section>
+  )
+}
+
+// ── Internal notes ────────────────────────────────────────────────────────────
+
+type InternalNote = { id: string; body: string; author: string; when: string; edited: string | null; mine: boolean }
+
+function InternalNoteItem({ n }: { n: InternalNote }) {
+  const { pending, error, run } = useAction()
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(n.body)
+  return (
+    <li className="rounded-xl border border-sand bg-white px-4 py-3 text-sm">
+      <p className="text-xs text-stone">{n.author} · {n.when}{n.edited ? ` · edited ${n.edited}` : ''}</p>
+      {editing ? (
+        <div className="mt-2">
+          <textarea value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={8000}
+            className="w-full rounded-lg border border-sand bg-white px-3 py-2 text-sm focus:border-cocoa focus:outline-none" />
+          <div className="mt-2 flex gap-2">
+            <button type="button" className={`${btnPrimary} px-3 py-1.5 text-xs`} disabled={pending || !text.trim()}
+              onClick={() => run(async () => { await editInternalNote(n.id, text); setEditing(false) })}>Save</button>
+            <button type="button" className={`${btnGhost} px-3 py-1.5 text-xs`} onClick={() => { setText(n.body); setEditing(false) }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-1 whitespace-pre-line text-ink">{n.body}</p>
+      )}
+      {n.mine && !editing && (
+        <div className="mt-1.5 flex gap-3 text-xs">
+          <button type="button" className="text-stone underline hover:text-cocoa" onClick={() => setEditing(true)}>Edit</button>
+          <button type="button" className="text-stone underline hover:text-red-700" disabled={pending}
+            onClick={() => confirm('Delete this note?') && run(() => deleteInternalNote(n.id))}>Delete</button>
+        </div>
+      )}
+      {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+    </li>
+  )
+}
+
+/** Staff-only notes (e.g. changes the customer emailed or phoned about). Never shown to the customer or posted to Trello. */
+export function InternalNotes({ jobId, notes }: { jobId: string; notes: InternalNote[] }) {
+  const { pending, error, run } = useAction()
+  const [text, setText] = useState('')
+  return (
+    <section className="rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
+      <h2 className="font-serif text-xl text-cocoa-dark">Internal notes</h2>
+      <p className="mt-1 text-sm text-stone">Staff only: never shown to the customer, emailed or posted to Trello.</p>
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={8000}
+        placeholder="e.g. Customer phoned: would like the band 1.8mm instead of 2mm"
+        className="mt-4 w-full rounded-lg border border-sand bg-white px-3 py-2 text-sm focus:border-cocoa focus:outline-none" />
+      <button type="button" className={`${btnPrimary} mt-2`} disabled={pending || !text.trim()}
+        onClick={() => run(async () => { await addInternalNote(jobId, text); setText('') })}>
+        {pending && <Spinner />} Add note
+      </button>
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+      {notes.length > 0 && <ul className="mt-4 space-y-2">{notes.map(n => <InternalNoteItem key={n.id} n={n} />)}</ul>}
     </section>
   )
 }

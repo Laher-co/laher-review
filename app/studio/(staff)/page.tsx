@@ -100,7 +100,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                       <p className="text-sm text-stone">{WAITING_FOR[w.reason]} · {designer ?? 'No designer'}</p>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
-                      {job.stoneNotSecured && <Badge tone="danger">Stone not secured</Badge>}
+                      {job.stoneNotSecured && <Badge tone="danger">Centre stone not secured</Badge>}
                         {job.sideStonesUnconfirmed && <Badge tone="warn">Side stones not confirmed</Badge>}
                         {job.conceptRender && <Badge tone="neutral">Concept</Badge>}
                       {job.sourcing && <Badge tone="warn">Requires sourcing{job.sourcingDesigner ? ` · ${job.sourcingDesigner}` : ''}</Badge>}
@@ -131,7 +131,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                       <p className="text-sm text-stone">{designer ?? 'No designer'} · since {formatSydney(f.startedAt)}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {job.stoneNotSecured && <Badge tone="danger">Stone not secured</Badge>}
+                      {job.stoneNotSecured && <Badge tone="danger">Centre stone not secured</Badge>}
                         {job.sideStonesUnconfirmed && <Badge tone="warn">Side stones not confirmed</Badge>}
                         {job.conceptRender && <Badge tone="neutral">Concept</Badge>}
                       {job.sourcing && <Badge tone="warn">Requires sourcing{job.sourcingDesigner ? ` · ${job.sourcingDesigner}` : ''}</Badge>}
@@ -184,7 +184,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                         {job.sourcing
                           ? <Badge tone="warn">Requires sourcing · {job.sourcingDesigner ?? designer ?? 'No designer'}</Badge>
                           : <Badge tone={status.tone}>{status.label}</Badge>}
-                        {job.stoneNotSecured && <Badge tone="danger">Stone not secured</Badge>}
+                        {job.stoneNotSecured && <Badge tone="danger">Centre stone not secured</Badge>}
                         {job.sideStonesUnconfirmed && <Badge tone="warn">Side stones not confirmed</Badge>}
                         {job.conceptRender && <Badge tone="neutral">Concept</Badge>}
                         {waitingJobIds.has(job.id) && <Badge tone="warn">Awaiting reply</Badge>}

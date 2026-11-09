@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     } catch (err) {
       await recordIssue({
         kind: 'trello_webhook', jobId: null, operation: null, error: err instanceof Error ? err.message : String(err),
-        summary: `Update “Stone not secured” from card ${a.data.card.name ?? a.data.card.id}`,
+        summary: `Update “Centre stone not secured” from card ${a.data.card.name ?? a.data.card.id}`,
       })
       return NextResponse.json({ ok: true, failed: true })
     }
