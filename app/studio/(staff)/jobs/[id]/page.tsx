@@ -5,7 +5,7 @@ import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
-import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
+import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, FlagSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
@@ -78,6 +78,18 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           <p className="mt-1 text-base sm:text-lg">Centre stone still to be sourced.</p>
         </div>
       )}
+      {job.sideStonesUnconfirmed && (
+        <div role="alert" className="rounded-2xl border-2 border-amber-600 bg-amber-500 px-5 py-4 text-amber-950 shadow-sm sm:px-6">
+          <p className="text-lg font-bold uppercase tracking-wide sm:text-xl">Side stone sizes not confirmed</p>
+          {job.approvedHold === 'side_stones' && <p className="mt-1 text-sm">Approved by the customer. Move the card to Print Ready once the sizes are confirmed.</p>}
+        </div>
+      )}
+      {job.approvedHold === 'concept' && (
+        <div className="rounded-2xl border border-violet-300 bg-violet-50 px-5 py-4 text-violet-900">
+          <p className="font-semibold">Concept approved</p>
+          <p className="mt-1 text-sm">Build the full render and publish it as the next version (answer “No, full build”) for the customer’s final approval.</p>
+        </div>
+      )}
       {job.sourcing && (
         <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-900">
           <p className="font-semibold">Requires sourcing{job.sourcingDesigner ? ` · ${job.sourcingDesigner}` : designerName ? ` · ${designerName}` : ''}</p>
@@ -97,6 +109,8 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           <div className="flex flex-col items-end gap-2">
             <DoNotEmailSwitch jobId={job.id} on={doNotEmail} />
             <StoneSwitch jobId={job.id} on={job.stoneNotSecured} />
+            <FlagSwitch jobId={job.id} flag="side_stones" on={job.sideStonesUnconfirmed} label="Side stones not confirmed" />
+            <FlagSwitch jobId={job.id} flag="concept" on={job.conceptRender} label="Concept render" />
             <ChangesRequestedButton jobId={job.id} />
           </div>
         </div>

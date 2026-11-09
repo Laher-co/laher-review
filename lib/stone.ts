@@ -5,6 +5,8 @@ export const LABEL_STONE = 'STONE NEEDS SOURCING'
 export const LABEL_DESIGN_APPROVED = 'DESIGN APPROVED'
 export const LABEL_OLD_SYSTEM = 'OLD SYSTEM'
 export const SOURCING_LIST = 'REQUIRES SOURCING'
+export const LABEL_SIDE_STONES = 'SIDE STONES NOT CONFIRMED'
+export const LABEL_CONCEPT = 'Concept Renders'
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 export const isSourcingList = (name: string | undefined | null) => !!name && same(name, SOURCING_LIST)

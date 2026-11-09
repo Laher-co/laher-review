@@ -23,6 +23,7 @@ import { cleanDesignerName, planDesignerLists } from '@/lib/designer-lists'
 import { checkedImages, saveMessageImage } from '@/lib/message-images'
 import { photoNote } from '@/lib/customer-message'
 import { setStone } from '@/lib/stone-sync'
+import { releaseHold, setFlag, type FlagKey } from '@/lib/job-flags'
 import { gemstoneDetails } from '@/lib/stone'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
@@ -225,8 +226,9 @@ export type PublishResult = {
  * designer's Revision list. Customer emails arrive in Phase 4; until then
  * staff copy the link shown after publishing.
  */
-export async function publishVersion(versionId: string): Promise<PublishResult> {
+export async function publishVersion(versionId: string, concept?: boolean): Promise<PublishResult> {
   const session = await requireStaff()
+  if (typeof concept !== 'boolean') return { ok: false, error: 'Answer “Is this a concept render?” first.' }
   const v = await draftVersionOrThrow(versionId)
   const [job] = await db.select().from(jobs).where(eq(jobs.id, v.jobId))
   const [full] = (await loadVersions(v.jobId)).filter(x => x.id === versionId)
@@ -242,7 +244,7 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
 
   // Conditional update so a double-click can't publish (and notify) twice
   const claimed = await db.update(versions)
-    .set({ status: 'published', publishedAt: new Date(), publishedBy: session.staffId })
+    .set({ status: 'published', publishedAt: new Date(), publishedBy: session.staffId, concept })
     .where(and(eq(versions.id, versionId), eq(versions.status, 'draft')))
     .returning({ id: versions.id })
   if (claimed.length === 0) return { ok: false, error: 'This version has already been published.' }
@@ -260,10 +262,16 @@ export async function publishVersion(versionId: string): Promise<PublishResult> 
     { type: 'trello.labelAndMove', args: { cardId: job.trelloCardId, label: LABEL_REVIEW_APP, stage: 'Revision' } }))
 
   // Email the customer (skipped if the card says "Do not email") and start the follow-up clock
+  // Concept render or full build: the switch (and the "Concept Renders" label) follows the answer.
+  // The full design after an approved concept is announced as "Your final design is ready".
+  const finalDesign = !concept && job.approvedHold === 'concept'
+  if (concept !== job.conceptRender) await setFlag(job, 'concept', concept, { staffId: session.staffId, source: 'publish' })
+  if (job.approvedHold) await releaseHold(job, 'new_version')
+
   const { common } = await emailContext(job.id)
   const sent = await sendCustomerEmail(job.id, 'version_ready', versionReady({
     ...common, versionTitle: versionTitle(v.number), versionNumber: v.number,
-    optionCount: full.options.length, note: full.designerNote,
+    optionCount: full.options.length, note: full.designerNote, final: finalDesign,
   }))
   const customerEmail: PublishResult['customerEmail'] = sent.ok ? sent.value : 'failed'
   await startDesignFollowup(job.id, v.number)
@@ -622,6 +630,16 @@ export async function setStoneNotSecured(jobId: string, on: boolean) {
   // Remember the gemstone details as they are now, so a switch-off sticks until they change
   const card = await getCard(job.trelloCardId).catch(() => null)
   await setStone(job, on, { staffId: session.staffId, source: 'studio', detailsSeen: card ? gemstoneDetails(card.desc) : job.stoneDetailsSeen })
+  revalidatePath(`/studio/jobs/${jobId}`)
+  revalidatePath('/studio')
+}
+
+/** "Side stones not confirmed" and "Concept render" switches (any staff member); the Trello label follows. */
+export async function setJobFlag(jobId: string, key: FlagKey, on: boolean) {
+  const session = await requireStaff()
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
+  if (!job) throw new Error('Job not found.')
+  await setFlag(job, key, on, { staffId: session.staffId, source: 'studio' })
   revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath('/studio')
 }

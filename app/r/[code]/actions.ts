@@ -22,6 +22,7 @@ import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { getCard, getList, LABEL_AWAITING_SIZE } from '@/lib/trello'
 import { hasLabel, LABEL_DESIGN_APPROVED, LABEL_OLD_SYSTEM, SOURCING_LIST } from '@/lib/stone'
 import { enterSourcing } from '@/lib/stone-sync'
+import { approvalComment, approvalRoute, roundState } from '@/lib/approval'
 import { parseDesignerList } from '@/lib/trello-parse'
 import type { Stroke } from '@/components/DrawingCanvas'
 
@@ -55,23 +56,28 @@ export async function submitRingSize(code: string, rawSize: string): Promise<Res
   if (!size) return { ok: false, error: 'Please choose or enter your ring size.' }
   if (job.ringSizeStatus === 'confirmed') return { ok: false, error: 'Your ring size has already been confirmed.' }
 
-  const [updated] = await db.update(jobs)
-    .set({ ringSize: size, ringSizeStatus: 'submitted', ringSizeSubmittedAt: new Date(), updatedAt: new Date() })
-    .where(eq(jobs.id, job.id)).returning()
+  // A size the customer enters is confirmed straight away (staff can still change it in Studio).
+  // An approval that was waiting on the size goes ahead.
+  const [updated] = await db.update(jobs).set({
+    ringSize: size, ringSizeStatus: 'confirmed', ringSizeSubmittedAt: new Date(),
+    ringSizeConfirmedAt: new Date(), ringSizeConfirmedBy: null, updatedAt: new Date(),
+    ...(job.status === 'approved_size_needed' ? { status: 'approved' as const } : {}),
+  }).where(eq(jobs.id, job.id)).returning()
 
   const cardId = job.trelloCardId
-  await tracked('trello_fields', job.id, `Set the Finger Size fields to ${size} (Customer submitted)`,
-    { type: 'trello.ringFields', args: { cardId, size, status: 'Customer submitted' } })
+  await tracked('trello_fields', job.id, `Set the Finger Size fields to ${size} (Confirmed)`,
+    { type: 'trello.ringFields', args: { cardId, size, status: 'Confirmed' } })
+  for (const name of ['Finger Size TBC', LABEL_AWAITING_SIZE]) {
+    await tracked('trello_label', job.id, `Remove the “${name}” label`, { type: 'trello.removeLabel', args: { cardId, name } })
+  }
   await tracked('trello_comment', job.id, 'Post the customer’s ring size comment', {
-    type: 'trello.comment',
-    args: { cardId, text: `Customer submitted their finger size: ${size}\nPlease confirm it in the studio: ${studioLink(job.id)}` },
+    type: 'trello.comment', args: { cardId, text: `**FINGER SIZE CONFIRMED BY CUSTOMER: ${size}**` },
   })
 
   await stopFollowups(job.id, ['design', 'size'], 'Customer sent their ring size')
-  await openWaiting(job.id, 'ring_size')
-  await alertCustomerAction(job.id, 'Ring size submitted', `The customer says their ring size is ${size}. Please check it and confirm it in the studio.`)
-  await logEvent(job.id, null, 'ring_size_submitted', { size })
-  await emitWebhook(job.id, 'ring_size_submitted', { ...jobPayload(updated, designerName), actor: { type: 'customer' } })
+  await alertCustomerAction(job.id, 'Ring size confirmed by the customer', `The customer’s ring size is ${size}. Nothing to do unless it looks wrong (you can change it in the studio).`)
+  await logEvent(job.id, null, 'ring_size_confirmed', { size, by: 'customer' })
+  await emitWebhook(job.id, 'ring_size_confirmed', { ...jobPayload(updated, designerName), actor: { type: 'customer' } })
   revalidatePath(`/r/${code}`)
   return { ok: true }
 }
@@ -124,6 +130,21 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   if (!version) return { ok: false, error: 'That version isn’t available. Please refresh the page.' }
   const approved = input.decision === 'approved'
 
+  // Same submission arriving twice (double-tap, retry): already recorded
+  const key = input.clientKey.slice(0, 64)
+  if (key) {
+    const [dupe] = await db.select({ id: decisions.id }).from(decisions).where(eq(decisions.clientKey, key))
+    if (dupe) return { ok: true }
+  }
+  // One change request per round, and nothing more once a full design is approved
+  const round = roundState(
+    (await db.select({ at: versions.publishedAt }).from(versions).where(and(eq(versions.jobId, job.id), eq(versions.status, 'published')))).map(v => v.at),
+    await db.select({ decision: decisions.decision, concept: decisions.concept, createdAt: decisions.createdAt }).from(decisions).where(eq(decisions.jobId, job.id)))
+  const who = designerName ?? 'your designer'
+  if (round === 'approved') return { ok: false, error: 'Your design is approved.' }
+  if (round === 'concept_approved') return { ok: false, error: `${who} is now building your full design. You’ll be able to review it soon.` }
+  if (round === 'changes_sent' && !approved) return { ok: false, error: `Your changes are with ${who}. You’ll be able to review the next version soon.` }
+
   // Every response is tied to one version AND one option
   const versionOptions = await db.select().from(options).where(eq(options.versionId, version.id))
   const option = versionOptions.length === 1
@@ -155,17 +176,29 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
     }
   }
 
+  // Where an approval goes: stone not secured → REQUIRES SOURCING; concept or
+  // side stones → Alterations (held); otherwise Print Ready
+  const cardId = job.trelloCardId
+  const card = approved ? await getCard(cardId).catch(() => null) : null
+  const oldSystem = card ? hasLabel(card.labels, LABEL_OLD_SYSTEM) : false
+  const flags = { stoneNotSecured: job.stoneNotSecured, conceptRender: job.conceptRender, sideStonesUnconfirmed: job.sideStonesUnconfirmed, oldSystem }
+  const route = approved ? approvalRoute(flags) : null
+  const toSourcing = route?.to === 'sourcing'
+  const cardDesigner = (card ? parseDesignerList((await getListName(card.idList)) ?? '')?.designer : null) ?? designerName ?? 'the designer'
+
   const inserted = await db.insert(decisions).values({
     jobId: job.id, versionId: version.id, optionId: option.id,
     decision: input.decision, changes, comments: comments || null, annotations,
-    sizeOutstanding, clientKey: input.clientKey.slice(0, 64) || null,
+    sizeOutstanding, clientKey: input.clientKey.slice(0, 64) || null, concept: approved && job.conceptRender,
   }).onConflictDoNothing({ target: decisions.clientKey }).returning()
   // Same submission arriving twice (double-tap, retry): already recorded
   if (inserted.length === 0) return { ok: true }
 
   const [updated] = await db.update(jobs).set({
     status: !approved ? 'changes_requested' : sizeOutstanding ? 'approved_size_needed' : 'approved',
-    ...(submittedSize ? { ringSize: submittedSize, ringSizeStatus: 'submitted' as const, ringSizeSubmittedAt: new Date() } : {}),
+    // A size the customer enters is confirmed straight away
+    ...(submittedSize ? { ringSize: submittedSize, ringSizeStatus: 'confirmed' as const, ringSizeSubmittedAt: new Date(), ringSizeConfirmedAt: new Date(), ringSizeConfirmedBy: null } : {}),
+    ...(approved ? { approvedHold: route!.hold } : {}),
     updatedAt: new Date(),
   }).where(eq(jobs.id, job.id)).returning()
 
@@ -174,25 +207,16 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
     optionLabel: option.label, optionCount: versionOptions.length,
   })
 
-  // Approved while the stone isn't secured: to REQUIRES SOURCING instead of
-  // Print Ready (cards labelled OLD SYSTEM are left to the old process)
-  const cardId = job.trelloCardId
-  const card = approved ? await getCard(cardId).catch(() => null) : null
-  const oldSystem = card ? hasLabel(card.labels, LABEL_OLD_SYSTEM) : false
-  const toSourcing = approved && job.stoneNotSecured && !oldSystem
-  const cardDesigner = (card ? parseDesignerList((await getListName(card.idList)) ?? '')?.designer : null) ?? designerName ?? 'the designer'
-
   // Trello: bold header first, then the changes, then the drawings. The card
   // moves to the same designer's Alterations / Print Ready list (or REQUIRES SOURCING).
   // Blocks separated by one blank line: header, changes, comments, size, drawings
-  const blocks = toSourcing
-    ? [`**APPROVED: ${versionTitle(version.number)}, Option ${option.label} – stone to be sourced.** Return to ${cardDesigner} | Print Ready once the stone is added. No further renders to the customer.`]
-    : [`**${heading}**`]
+  const special = approved ? approvalComment(flags, `${versionTitle(version.number)}, Option ${option.label}`, cardDesigner) : []
+  const blocks = special.length ? [...special] : [`**${heading}**`]
   const notes = changes.filter(c => c.note).map(c => `• **${areaLabel(c.area)}:** ${c.note}`)
   if (notes.length) blocks.push(notes.join('\n'))
   if (comments) blocks.push(`Comments: ${comments}`)
-  if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (awaiting confirmation)`)
-  if (sizeOutstanding) blocks.push(`Customer isn’t sure of their ring size: ${toSourcing ? 'added' : 'moved to Print Ready with'} the “${LABEL_AWAITING_SIZE}” label. Confirm the size in the studio to clear it.`)
+  if (submittedSize) blocks.push(`Ring size from customer: ${submittedSize} (confirmed by the customer)`)
+  if (sizeOutstanding) blocks.push(`Customer isn’t sure of their ring size: ${route?.to === 'print_ready' ? 'moved to Print Ready with' : 'added'} the “${LABEL_AWAITING_SIZE}” label. Set the size in the studio to clear it.`)
   if (annotations.length) blocks.push([`Drawing${annotations.length > 1 ? 's' : ''}:`, ...annotations.map(a => a.drawingUrl)].join('\n'))
   blocks.push(`Studio: ${studioLink(job.id)}`)
   await tracked('trello_comment', job.id, `Post “${heading}” on the Trello card`,
@@ -203,8 +227,10 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
       { type: 'trello.attach', args: { cardId, url: a.drawingUrl, name } })
   }
   if (submittedSize) {
-    await tracked('trello_fields', job.id, `Set the Finger Size fields to ${submittedSize} (Customer submitted)`,
-      { type: 'trello.ringFields', args: { cardId, size: submittedSize, status: 'Customer submitted' } })
+    await tracked('trello_fields', job.id, `Set the Finger Size fields to ${submittedSize} (Confirmed)`,
+      { type: 'trello.ringFields', args: { cardId, size: submittedSize, status: 'Confirmed' } })
+    await tracked('trello_label', job.id, 'Remove the “Finger Size TBC” label',
+      { type: 'trello.removeLabel', args: { cardId, name: 'Finger Size TBC' } })
   }
   if (approved && !oldSystem) {
     await tracked('trello_label', job.id, `Add the “${LABEL_DESIGN_APPROVED}” label`,
@@ -215,8 +241,11 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
     : toSourcing
       ? moveOutcome(await tracked('trello_move', job.id, `Move the card to ${SOURCING_LIST} (${heading}, stone not secured)`,
           { type: 'trello.toList', args: { cardId, list: SOURCING_LIST } }))
-      : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
-          { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
+      : route?.to === 'alterations'
+        ? moveOutcome(await tracked('trello_move', job.id, `Move the card to Alterations (${heading}, ${route.hold === 'concept' ? 'concept render' : 'side stones to confirm'})`,
+            { type: 'trello.move', args: { cardId, stage: 'Alterations' } }))
+        : moveOutcome(await tracked('trello_move', job.id, `Move the card to Print Ready (${heading})`,
+            { type: 'trello.move', args: { cardId, stage: 'Print Ready' } }))
   if (toSourcing && trello.moved) await enterSourcing(job.id, 'approved', cardDesigner, 'app')
   if (sizeOutstanding) {
     await tracked('trello_label', job.id, `Add the “${LABEL_AWAITING_SIZE}” label`,
@@ -230,7 +259,7 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   const { common } = await emailContext(job.id)
   const what = `${versionTitle(version.number)}${versionOptions.length > 1 ? `, Option ${option.label}` : ''}`
   await sendCustomerEmail(job.id, approved ? 'approved_summary' : 'changes_summary', approved
-    ? approvedSummary({ ...common, what, comments: comments || null, sizeOutstanding })
+    ? approvedSummary({ ...common, what, comments: comments || null, sizeOutstanding, next: route?.hold === 'concept' ? 'full_design' : route?.hold === 'side_stones' ? 'finalising' : 'production' })
     : changesSummary({
         ...common, what, comments: comments || null, drawings: annotations.length,
         changes: changes.filter(c => c.note).map(c => `${areaLabel(c.area)}: ${c.note}`),
@@ -240,8 +269,10 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   await alertCustomerAction(job.id, heading, [
     ...changes.filter(c => c.note).map(c => `${areaLabel(c.area)}: ${c.note}`),
     comments ? `Comments: ${comments}` : '',
-    submittedSize ? `Ring size given: ${submittedSize} (please confirm)` : '',
-    sizeOutstanding ? 'Not sure of their ring size: please help them confirm it. The card stays put until you do.' : '',
+    submittedSize ? `Ring size given: ${submittedSize} (confirmed by the customer)` : '',
+    sizeOutstanding ? 'Not sure of their ring size: please help them confirm it.' : '',
+    route?.hold === 'concept' ? 'Concept approved: card moved to Alterations to build the full render.' : '',
+    route?.hold === 'side_stones' ? 'Side stone sizes to confirm: card moved to Alterations. Move it to Print Ready once confirmed.' : '',
     annotations.length ? `${annotations.length} drawing${annotations.length > 1 ? 's' : ''} attached` : '',
   ].filter(Boolean).join('\n'))
   await logEvent(job.id, null, approved ? 'design_approved' : 'changes_requested', {
@@ -346,7 +377,7 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
     version: version ? { id: version.id, number: version.number } : null,
     body, annotations, attachments: images, source: 'page', clientKey: input.clientKey.slice(0, 64) || null,
   })
-  await moveToAlterationsForCustomer(job, version ? `Customer message on ${versionTitle(version.number)}` : 'Customer message')
+  // Messages never move the Trello card: they go to Jane's queue as normal
   revalidatePath(`/r/${code}`)
   return { ok: true }
 }

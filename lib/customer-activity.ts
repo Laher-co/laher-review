@@ -4,9 +4,9 @@ import { tracked } from './issues'
 import type { AlterationsResult } from './trello'
 
 /**
- * A customer message, change request or drawing in the portal moves the card
+ * A customer change request (with any drawings) in the portal moves the card
  * from Revision to Alterations in its designer funnel (other lists: no move).
- * Email replies and ring sizes never move it.
+ * Messages, email replies and ring sizes never move it.
  * Never throws: a Trello error becomes an issue with an alert email to the
  * team, and the customer's message is already saved. Every outcome is logged.
  */

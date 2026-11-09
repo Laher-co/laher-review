@@ -69,9 +69,24 @@ function layout(c: Common, o: {
 
 // ── New version ready (on Publish) ────────────────────────────────────────────
 
-export function versionReady(c: Common & { versionTitle: string; versionNumber: number; optionCount: number; note: string | null }): EmailContent {
+export function versionReady(c: Common & { versionTitle: string; versionNumber: number; optionCount: number; note: string | null; final?: boolean }): EmailContent {
   const d = esc(c.designer)
   const note = c.note ? { label: `A note from ${c.designer}`, text: c.note.length > 320 ? `${c.note.slice(0, 320)}…` : c.note } : undefined
+  // The full design, built from the concept they approved
+  if (c.final) {
+    return {
+      subject: `${c.firstName}, your final design is ready`,
+      ...layout(c, {
+        heading: 'Your final design is ready',
+        paragraphs: [
+          `${d} has built the full design of your ring from the concept you approved, and we can’t wait for you to see it.`,
+          'Take your time looking through it. When you’re happy, approve it for production, or tell us anything you’d love to change.',
+        ],
+        quote: note,
+        button: { label: 'See your final design' },
+      }),
+    }
+  }
   if (c.versionNumber === 1) {
     return {
       subject: `${c.firstName}, your design is ready to see`,
@@ -118,17 +133,30 @@ export function staffReplied(c: Common & { staffName: string; body: string; phot
 
 // ── Summaries ─────────────────────────────────────────────────────────────────
 
-export function approvedSummary(c: Common & { what: string; comments: string | null; sizeOutstanding: boolean }): EmailContent {
+export function approvedSummary(c: Common & {
+  what: string; comments: string | null; sizeOutstanding: boolean
+  // What happens next: production (the usual), finalising details, or building the full design from an approved concept
+  next?: 'production' | 'finalising' | 'full_design'
+}): EmailContent {
   const d = esc(c.designer)
+  const nextLine = c.next === 'full_design'
+    ? `${d} will now build your full design, and we’ll share it with you for your final approval.`
+    : c.next === 'finalising'
+      ? `${d} is now finalising your design, and we’ll be in touch about the next steps.`
+      : `${d} will now prepare everything for production, and we’ll be in touch about the next steps.`
   return {
-    subject: `Thank you, ${c.firstName}. We’re so excited to make your ring`,
+    subject: c.next === 'full_design'
+      ? `Thank you, ${c.firstName}. ${c.designer} is building your full design`
+      : `Thank you, ${c.firstName}. We’re so excited to make your ring`,
     ...layout(c, {
-      heading: 'Thank you for approving your design',
+      heading: c.next === 'full_design' ? 'Thank you for approving the concept' : 'Thank you for approving your design',
       paragraphs: [
-        `We’re thrilled you love <strong>${esc(c.what)}</strong>. It’s a beautiful choice, and ${d} can’t wait to see it made.`,
+        c.next === 'full_design'
+          ? `We’re so glad you love the direction of <strong>${esc(c.what)}</strong>.`
+          : `We’re thrilled you love <strong>${esc(c.what)}</strong>. It’s a beautiful choice, and ${d} can’t wait to see it made.`,
         c.sizeOutstanding
-          ? `The one thing we still need is your ring size. There’s no rush at all: whenever you’re ready, add it on your page, or send us a message and we’ll happily help you work it out. Once we have it, ${d} will prepare everything for production.`
-          : `${d} will now prepare everything for production, and we’ll be in touch about the next steps.`,
+          ? `The one thing we still need is your ring size. There’s no rush at all: whenever you’re ready, add it on your page, or send us a message and we’ll happily help you work it out. ${nextLine}`
+          : nextLine,
       ],
       quote: c.comments ? { label: 'Your note', text: c.comments } : undefined,
       button: { label: c.sizeOutstanding ? 'Add my ring size' : 'See your design', href: c.sizeOutstanding ? `${c.pageUrl}#ring-size` : undefined },
