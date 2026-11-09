@@ -3,9 +3,10 @@
 import Image from 'next/image'
 import { useRef, useState, useTransition } from 'react'
 import { upload } from '@vercel/blob/client'
-import { addDesigner, removeDesigner, runBackfill, saveSettingImage, setDesignerOnStudio, type AddDesignerReport, type BackfillReport } from '../../actions'
+import { addDesigner, removeDesigner, runBackfill, saveClusterImage, saveSettingImage, setDesignerOnStudio, type AddDesignerReport, type BackfillReport } from '../../actions'
 import { SETTING_COPY, type SettingChoice } from '@/lib/setting'
 import SettingIllustration from '@/components/SettingIllustration'
+import { CLUSTER_STYLES, type ClusterStyle } from '@/lib/onboarding'
 import { Badge, Spinner } from '@/components/brand'
 
 const RESULT_LABEL: Record<string, string> = {
@@ -167,6 +168,65 @@ export function SettingImageSlot({ choice, url }: { choice: SettingChoice; url: 
               className="rounded-lg border border-sand px-3 py-2 text-xs text-cocoa hover:bg-linen disabled:opacity-50">
               Use placeholder
             </button>
+          )}
+        </div>
+        {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+/** Ryan only: the photo for one irregular cluster style (A–G). */
+export function ClusterImageSlot({ style, url }: { style: ClusterStyle; url: string | null }) {
+  const input = useRef<HTMLInputElement>(null)
+  const [pending, start] = useTransition()
+  const [pct, setPct] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const s = CLUSTER_STYLES.find(x => x.key === style)!
+
+  const onFile = (file: File | undefined) => {
+    if (!file) return
+    setError(null)
+    start(async () => {
+      try {
+        const safe = file.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-')
+        setPct(0)
+        const blob = await upload(`clusters/${style}/${safe}`, file, {
+          access: 'public', handleUploadUrl: '/api/staff/upload',
+          clientPayload: JSON.stringify({ clusterImage: style }),
+          onUploadProgress: ({ percentage }) => setPct(Math.round(percentage)),
+        })
+        await saveClusterImage(style, { url: blob.url, pathname: blob.pathname })
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Upload failed.')
+      } finally {
+        setPct(null)
+        if (input.current) input.current.value = ''
+      }
+    })
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-sand bg-white">
+      <div className="relative aspect-square bg-linen">
+        {url
+          ? <Image src={url} alt={s.heading} fill sizes="200px" className="object-contain" />
+          : <span className="flex h-full w-full items-center justify-center font-serif text-3xl text-cocoa-light">{style}</span>}
+      </div>
+      <div className="p-3">
+        <p className="text-sm font-medium text-cocoa-dark">{style}. {s.heading}</p>
+        <p className="mt-0.5 text-xs text-stone">{url ? 'Your photo' : 'Placeholder'}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/avif" className="hidden"
+            onChange={e => onFile(e.target.files?.[0])} />
+          <button type="button" disabled={pending} onClick={() => input.current?.click()}
+            className="inline-flex items-center gap-2 rounded-lg bg-cocoa px-3 py-2 text-xs text-ivory hover:bg-cocoa-dark disabled:opacity-50">
+            {pending && <Spinner />}{pct !== null ? `Uploading ${pct}%` : url ? 'Replace' : 'Upload'}
+          </button>
+          {url && (
+            <button type="button" disabled={pending}
+              onClick={() => start(async () => { try { await saveClusterImage(style, null) } catch (e) { setError(e instanceof Error ? e.message : 'Failed.') } })}
+              className="rounded-lg border border-sand px-3 py-2 text-xs text-cocoa hover:bg-linen disabled:opacity-50">Use placeholder</button>
           )}
         </div>
         {error && <p className="mt-2 text-xs text-red-700">{error}</p>}

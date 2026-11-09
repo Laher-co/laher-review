@@ -1,7 +1,8 @@
 'use client'
 
 import Image from 'next/image'
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { SETTING_CHOICES, SETTING_COPY, type SettingChoice } from '@/lib/setting'
 import SettingIllustration from '@/components/SettingIllustration'
 import Lightbox, { type LightboxImage } from '@/components/Lightbox'
@@ -52,6 +53,8 @@ export default function SettingChooser({ code, initial, locked, images }: {
   const [error, setError] = useState<string | null>(null)
   const [, start] = useTransition()
   const [zoom, setZoom] = useState<number | null>(null)
+  const router = useRouter()
+  const top = useRef<HTMLDivElement>(null)
   // The viewer swipes between both photos (placeholders aren't zoomable)
   const photos = SETTING_CHOICES.filter(c => images[c])
   const gallery: LightboxImage[] = photos.map(c => ({
@@ -67,7 +70,7 @@ export default function SettingChooser({ code, initial, locked, images }: {
     start(async () => {
       try {
         const r = await chooseSetting(code, c)
-        if (r.ok) { setChosen(c); setChanging(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+        if (r.ok) { setChosen(c); setChanging(false); top.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); router.refresh() }
         else setError(r.error)
       } catch {
         setError('Something went wrong. Please try again.')
@@ -81,7 +84,7 @@ export default function SettingChooser({ code, initial, locked, images }: {
   if (chosen && !changing) {
     const copy = SETTING_COPY[chosen]
     return (
-      <div className="mt-8" role="status">
+      <div ref={top} className="mt-6 scroll-mt-6" role="status">
         <div className="overflow-hidden rounded-2xl border border-cocoa/25 bg-white shadow-[0_1px_0_rgba(74,48,34,0.04)]">
           <SettingImage choice={chosen} images={images} priority onZoom={zoomTo(chosen)} />
           <div className="px-5 py-6 text-center sm:px-8">
@@ -105,7 +108,7 @@ export default function SettingChooser({ code, initial, locked, images }: {
   }
 
   return (
-    <div className="mt-8">
+    <div ref={top} className="mt-6 scroll-mt-6">
       <p className="text-[15px] text-stone">Tap an image to see it up close, then choose the style you prefer.</p>
       <div className="mt-4 grid gap-5 sm:grid-cols-2">
         {SETTING_CHOICES.map((c, i) => {

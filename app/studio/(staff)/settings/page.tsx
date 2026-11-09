@@ -1,7 +1,9 @@
 import { asc, eq } from 'drizzle-orm'
 import { db, staff } from '@/lib/db'
 import { requireStaff } from '@/lib/auth'
-import { AddDesigner, DesignerToggle, SettingImageSlot } from './client'
+import { AddDesigner, ClusterImageSlot, DesignerToggle, SettingImageSlot } from './client'
+import { getClusterImages } from '@/lib/onboarding-server'
+import { CLUSTER_STYLES } from '@/lib/onboarding'
 import { getSettingImages } from '@/lib/setting-server'
 
 export const metadata = { title: 'Settings — LAHER Studio' }
@@ -12,6 +14,7 @@ export default async function SettingsPage() {
   const isOwner = people.find(p => p.id === session.staffId)?.role === 'owner'
   const designers = people.filter(p => p.role === 'designer' && p.active)
   const settingImages = isOwner ? await getSettingImages() : {}
+  const clusterImages = isOwner ? await getClusterImages() : {}
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -45,6 +48,16 @@ export default async function SettingsPage() {
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <SettingImageSlot choice="high_set" url={settingImages.high_set?.url ?? null} />
             <SettingImageSlot choice="low_set" url={settingImages.low_set?.url ?? null} />
+          </div>
+        </section>
+      )}
+
+      {isOwner && (
+        <section className="mt-6 rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
+          <h2 className="font-serif text-xl text-cocoa-dark">Irregular cluster images</h2>
+          <p className="mt-1 text-sm text-stone">Shown on the onboarding page’s irregular cluster question. Square images work best.</p>
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {CLUSTER_STYLES.map(c => <ClusterImageSlot key={c.key} style={c.key} url={clusterImages[c.key]?.url ?? null} />)}
           </div>
         </section>
       )}

@@ -6,7 +6,8 @@ import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
   customerRepliedByEmail, logFollowupCall, setJobFlag, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
-  removeOption, removeRender, saveVersionNote, setSettingChoiceAction, setSettingNotNeeded,
+  removeOption, removeRender, saveVersionNote, setSettingChoiceAction,
+  addOnboardingQuestion, postOnboardingLinkAction, removeOnboardingQuestion, setIrregularClusterAction, setSettingQuestionAction,
 } from '../../../actions'
 import type { FullOption, FullVersion } from '@/lib/jobs'
 import { Badge, Spinner } from '@/components/brand'
@@ -641,60 +642,165 @@ export function FlagSwitch({ jobId, flag, on, label }: { jobId: string; flag: 's
   )
 }
 
-// ── Setting question ──────────────────────────────────────────────────────────
+// ── Onboarding page ───────────────────────────────────────────────────────────
 
-/** Link to send the customer, "Not needed", and the answer (staff can set it too). */
-export function SettingQuestionPanel({ jobId, url, choice, answeredBy, answeredAt, notNeeded, locked }: {
-  jobId: string; url: string; choice: SettingChoice | null; answeredBy: string | null; answeredAt: string | null
-  notNeeded: boolean; locked: boolean
-}) {
+function MiniSwitch({ on, disabled, onClick, label }: { on: boolean; disabled?: boolean; onClick(): void; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} disabled={disabled} onClick={onClick}
+      className={`inline-flex items-center gap-2.5 rounded-full border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ${on ? 'border-cocoa/40 bg-linen text-cocoa-dark' : 'border-sand bg-white text-cocoa'}`}>
+      <span className={`relative h-5 w-9 rounded-full transition-colors ${on ? 'bg-cocoa' : 'bg-sand'}`}>
+        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+      </span>
+      {label} {on ? 'on' : 'off'}
+    </button>
+  )
+}
+
+export type OnboardingPanelProps = {
+  jobId: string; url: string; linkPostedAt: string | null
+  progress: { done: number; total: number; sections: { label: string; done: boolean }[] }
+  setting: { on: boolean; choice: SettingChoice | null; answeredBy: string | null; answeredAt: string | null; locked: boolean }
+  cluster: { on: boolean; auto: boolean; override: boolean | null; styles: string[]; savedAt: string | null }
+  questions: { id: string; question: string; answer: string | null; answeredAt: string | null; askedBy: string }[]
+  notes: { id: string; body: string; photos: string[]; when: string }[]
+}
+
+/** The customer's onboarding page: link, which questions are on, and everything they've answered. */
+export function OnboardingPanel(p: OnboardingPanelProps) {
   const { pending, error, run } = useAction()
+  const [newQ, setNewQ] = useState('')
+  const sub = 'text-xs uppercase tracking-widest text-cocoa-light'
   return (
     <section className="rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="font-serif text-xl text-cocoa-dark">Setting question</h2>
-          <p className="mt-1 text-sm text-stone">How the engagement ring and wedding band sit together. No emails are sent: copy the link to the customer.</p>
+          <h2 className="font-serif text-xl text-cocoa-dark">Onboarding page</h2>
+          <p className="mt-1 text-sm text-stone">
+            {p.progress.total ? `${p.progress.done} of ${p.progress.total} done` : 'Nothing for the customer to answer yet'}
+            {p.progress.sections.length > 0 && ` · ${p.progress.sections.map(s => `${s.label}${s.done ? ' ✓' : ''}`).join(' · ')}`}
+          </p>
         </div>
-        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-cocoa">
-          <input type="checkbox" checked={notNeeded} disabled={pending} className="h-4 w-4 accent-cocoa"
-            onChange={e => run(() => setSettingNotNeeded(jobId, e.target.checked))} />
-          Not needed
-        </label>
+        {pending && <Spinner />}
       </div>
 
-      {notNeeded ? (
-        <p className="mt-4 rounded-xl bg-linen px-4 py-3 text-sm text-stone">Marked not needed. If the customer opens the link, it says there’s no need to choose.</p>
-      ) : (
-        <>
-          <div className="mt-4 rounded-xl border border-sand bg-white px-4 py-3">
-            {choice ? (
+      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+        <span className="flex items-center gap-2"><span className="text-cocoa-light">Customer link:</span> <CopyLink url={p.url} /></span>
+        {p.linkPostedAt
+          ? <span className="text-xs text-stone">Posted on the Trello card {p.linkPostedAt}</span>
+          : <button type="button" disabled={pending} onClick={() => run(() => postOnboardingLinkAction(p.jobId))}
+              className={`${btnGhost} px-3 py-1.5 text-xs`}>Post link on the Trello card</button>}
+      </div>
+
+      {/* Setting question */}
+      <div className="mt-5 border-t border-sand pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className={sub}>Setting and wedding band</p>
+          <MiniSwitch on={p.setting.on} disabled={pending} label="Setting question"
+            onClick={() => run(() => setSettingQuestionAction(p.jobId, !p.setting.on))} />
+        </div>
+        {p.setting.on && (
+          <div className="mt-3 rounded-xl border border-sand bg-white px-4 py-3">
+            {p.setting.choice ? (
               <>
-                <p className="font-semibold tracking-wide text-cocoa-dark">{SETTING_COPY[choice].label}</p>
+                <p className="font-semibold tracking-wide text-cocoa-dark">{SETTING_COPY[p.setting.choice].label}</p>
                 <p className="mt-0.5 text-xs text-stone">
-                  {answeredBy ? `Set by ${answeredBy}` : 'Chosen by the customer'}{answeredAt ? ` · ${answeredAt}` : ''}
-                  {locked ? ' · Version One is published, so the customer can no longer change it' : ''}
+                  {p.setting.answeredBy ? `Set by ${p.setting.answeredBy}` : 'Chosen by the customer'}{p.setting.answeredAt ? ` · ${p.setting.answeredAt}` : ''}
+                  {p.setting.locked ? ' · Version One is published, so the customer can no longer change it' : ''}
                 </p>
               </>
             ) : <p className="text-sm text-stone">Not answered yet.</p>}
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm">
-            <span className="flex items-center gap-2"><span className="text-cocoa-light">Customer link:</span> <CopyLink url={url} /></span>
-            <span className="flex flex-wrap items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
               <span className="text-cocoa-light">Set the answer:</span>
               {SETTING_CHOICES.map(c => (
-                <button key={c} type="button" disabled={pending || choice === c}
-                  onClick={() => run(() => setSettingChoiceAction(jobId, c))}
-                  className={`${btnGhost} px-3 py-1.5 text-xs ${choice === c ? 'border-cocoa bg-linen' : ''}`}>
+                <button key={c} type="button" disabled={pending || p.setting.choice === c}
+                  onClick={() => run(() => setSettingChoiceAction(p.jobId, c))}
+                  className={`${btnGhost} px-3 py-1.5 text-xs ${p.setting.choice === c ? 'border-cocoa bg-linen' : ''}`}>
                   {c === 'high_set' ? 'High set' : 'Low set'}
                 </button>
               ))}
-              {pending && <Spinner />}
-            </span>
+            </div>
           </div>
-        </>
+        )}
+      </div>
+
+      {/* Irregular cluster */}
+      <div className="mt-5 border-t border-sand pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className={sub}>Irregular cluster</p>
+            <p className="mt-0.5 text-xs text-stone">
+              {p.cluster.override === null
+                ? `Following the card description (${p.cluster.auto ? 'mentions' : 'doesn’t mention'} “irregular cluster”)`
+                : <>Set by staff · <button type="button" className="underline" disabled={pending} onClick={() => run(() => setIrregularClusterAction(p.jobId, null))}>follow the description again</button></>}
+            </p>
+          </div>
+          <MiniSwitch on={p.cluster.on} disabled={pending} label="Irregular cluster question"
+            onClick={() => run(() => setIrregularClusterAction(p.jobId, !p.cluster.on))} />
+        </div>
+        {p.cluster.on && (
+          <p className="mt-3 rounded-xl border border-sand bg-white px-4 py-3 text-sm">
+            {p.cluster.savedAt
+              ? <><span className="font-semibold text-cocoa-dark">{p.cluster.styles.join(' · ')}</span> <span className="text-xs text-stone">· {p.cluster.savedAt}</span></>
+              : <span className="text-stone">Not answered yet.</span>}
+          </p>
+        )}
+      </div>
+
+      {/* Questions from the team */}
+      <div className="mt-5 border-t border-sand pt-4">
+        <p className={sub}>Questions from the team</p>
+        {p.questions.length > 0 && (
+          <ul className="mt-3 space-y-2">
+            {p.questions.map(q => (
+              <li key={q.id} className="rounded-xl border border-sand bg-white px-4 py-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium text-cocoa-dark">{q.question}</p>
+                  <button type="button" disabled={pending} className="shrink-0 text-xs text-stone underline hover:text-red-700"
+                    onClick={() => { if (confirm(q.answer ? 'Remove this question and the customer’s answer?' : 'Remove this question?')) run(() => removeOnboardingQuestion(q.id)) }}>
+                    Remove
+                  </button>
+                </div>
+                {q.answer
+                  ? <p className="mt-1 whitespace-pre-line text-ink">✓ {q.answer} <span className="text-xs text-stone">· {q.answeredAt}</span></p>
+                  : <p className="mt-1 text-stone">Not answered yet</p>}
+                <p className="mt-1 text-[11px] text-stone">Asked by {q.askedBy}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3 flex gap-2">
+          <input value={newQ} onChange={e => setNewQ(e.target.value)} maxLength={1000} placeholder="Add a question for the customer…"
+            className="min-w-0 flex-1 rounded-lg border border-sand bg-white px-3 py-2 text-sm focus:border-cocoa focus:outline-none" />
+          <button type="button" className={btnPrimary} disabled={pending || !newQ.trim()}
+            onClick={() => run(async () => { await addOnboardingQuestion(p.jobId, newQ); setNewQ('') })}>Add</button>
+        </div>
+        {p.linkPostedAt && <p className="mt-1 text-xs text-stone">Adding a question posts “New question added” on the card, so the team can let the customer know.</p>}
+      </div>
+
+      {/* Notes for the designers */}
+      {p.notes.length > 0 && (
+        <div className="mt-5 border-t border-sand pt-4">
+          <p className={sub}>Notes for the designers</p>
+          <ul className="mt-3 space-y-2">
+            {p.notes.map(n => (
+              <li key={n.id} className="rounded-xl border border-sand bg-white px-4 py-3 text-sm">
+                <p className="text-xs text-stone">{n.when}</p>
+                {n.body && <p className="mt-1 whitespace-pre-line text-ink">{n.body}</p>}
+                {n.photos.length > 0 && (
+                  <div className="mt-2 grid grid-cols-5 gap-1.5">
+                    {n.photos.map((u, i) => (
+                      <a key={u} href={u} target="_blank" rel="noreferrer" className="relative block aspect-square overflow-hidden rounded-md border border-sand">
+                        <Image src={u} alt={`Inspiration photo ${i + 1}`} fill sizes="120px" className="object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
     </section>
   )
 }

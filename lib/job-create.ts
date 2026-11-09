@@ -68,7 +68,7 @@ export async function cardDetails(card: TrelloCard): Promise<CardPreview> {
  * gets the job the first created.
  */
 export async function createJobFromDetails(d: CardPreview, input: {
-  customerName: string; customerEmail: string; designerId: string | null; createdBy: string; via: 'new_job_form' | 'trello_link'
+  customerName: string; customerEmail: string; designerId: string | null; createdBy: string | null; via: 'new_job_form' | 'trello_link' | 'onboarding_label'
 }): Promise<string> {
   const [job] = await db.insert(jobs).values({
     publicCode:     newPublicCode(),

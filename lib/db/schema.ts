@@ -80,6 +80,14 @@ export const jobs = pgTable('jobs', {
   settingChoiceAt:     timestamp('setting_choice_at', { withTimezone: true }),
   settingChoiceBy:     uuid('setting_choice_by').references(() => staff.id),   // null: the customer
   settingNotNeeded:    boolean('setting_not_needed').notNull().default(false),
+  // Onboarding page ("Welcome to LAHER Bespoke")
+  onboardingLinkPostedAt: timestamp('onboarding_link_posted_at', { withTimezone: true }),  // "Onboarding link: …" comment, once per card
+  settingQuestion:     boolean('setting_question').notNull().default(false),             // mirrors the SETTING QUESTION label
+  irregularClusterAuto: boolean('irregular_cluster_auto').notNull().default(false),       // "irregular cluster" in the card description
+  irregularClusterOverride: boolean('irregular_cluster_override'),                        // staff switch; null = follow the description
+  clusterStyles:       text('cluster_styles').array(),
+  clusterSavedAt:      timestamp('cluster_saved_at', { withTimezone: true }),
+  ringSizeNotSureAt:   timestamp('ring_size_not_sure_at', { withTimezone: true }),         // "Not sure yet" on the onboarding page
   createdBy:           uuid('created_by').references(() => staff.id),
   createdAt:           createdAt(),
   updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -283,3 +291,23 @@ export const followups = pgTable('followups', {
   closedBy:       uuid('closed_by').references(() => staff.id),
   closeNote:      text('close_note'),
 }, t => [index('followups_open').on(t.status, t.startedAt)])
+
+// ── Onboarding: questions from staff, and notes for the designers ────────────
+
+export const onboardingQuestions = pgTable('onboarding_questions', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  jobId:      uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+  question:   text('question').notNull(),
+  answer:     text('answer'),
+  answeredAt: timestamp('answered_at', { withTimezone: true }),
+  askedBy:    uuid('asked_by').references(() => staff.id),
+  createdAt:  createdAt(),
+}, t => [index('onboarding_questions_job').on(t.jobId, t.createdAt)])
+
+export const onboardingNotes = pgTable('onboarding_notes', {
+  id:        uuid('id').primaryKey().defaultRandom(),
+  jobId:     uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+  body:      text('body').notNull().default(''),
+  photos:    jsonb('photos').$type<MessageAttachment[]>().notNull().default([]),
+  createdAt: createdAt(),
+}, t => [index('onboarding_notes_job').on(t.jobId, t.createdAt)])

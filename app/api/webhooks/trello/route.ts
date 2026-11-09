@@ -11,6 +11,8 @@ import { FLAGS, releaseHold, syncFlagFromLabel, type FlagKey } from '@/lib/job-f
 import { parseDesignerList } from '@/lib/trello-parse'
 import { eq } from 'drizzle-orm'
 import { db, jobs } from '@/lib/db'
+import { LABEL_ONBOARDING, LABEL_SETTING_QUESTION, mentionsIrregularCluster } from '@/lib/onboarding'
+import { handleOnboardingLabel, updateIrregularCluster } from '@/lib/onboarding-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,6 +58,22 @@ export async function POST(request: Request) {
         kind: 'trello_webhook', jobId: null,
         summary: `Update “Do not email” from card ${a.data.card.name ?? a.data.card.id}`,
         operation: null, error: err instanceof Error ? err.message : String(err),
+      })
+      return NextResponse.json({ ok: true, failed: true })
+    }
+  }
+
+  // "ONBOARDING LINK" / "SETTING QUESTION" label: create the job if needed and post the onboarding link (once)
+  const labelName = a.data.label?.name?.trim().toLowerCase()
+  const onboardingLabel = labelName === LABEL_ONBOARDING.toLowerCase() ? 'link' as const
+    : labelName === LABEL_SETTING_QUESTION.toLowerCase() ? 'setting' as const : null
+  if ((a.type === 'addLabelToCard' || a.type === 'removeLabelFromCard') && onboardingLabel) {
+    try {
+      return NextResponse.json({ ok: true, result: await handleOnboardingLabel(a.data.card.id, onboardingLabel, a.type === 'addLabelToCard') })
+    } catch (err) {
+      await recordIssue({
+        kind: 'trello_webhook', jobId: null, operation: null, error: err instanceof Error ? err.message : String(err),
+        summary: `Handle the “${onboardingLabel === 'link' ? LABEL_ONBOARDING : LABEL_SETTING_QUESTION}” label on card ${a.data.card.name ?? a.data.card.id}`,
       })
       return NextResponse.json({ ok: true, failed: true })
     }
@@ -134,6 +152,11 @@ export async function POST(request: Request) {
         if (job && card) await detectStone(job, card).catch(err => recordIssue({
           kind: 'trello_webhook', jobId: job.id, operation: null, error: err instanceof Error ? err.message : String(err),
           summary: 'Check the gemstone details for “ct TBC”',
+        }))
+        // "irregular cluster" in the description switches the onboarding question on (staff can override)
+        if (job && card) await updateIrregularCluster(job, { auto: mentionsIrregularCluster(card.desc) }).catch(err => recordIssue({
+          kind: 'trello_webhook', jobId: job.id, operation: null, error: err instanceof Error ? err.message : String(err),
+          summary: 'Check the description for “irregular cluster”',
         }))
       }
       const result = await syncRingSizeFromCard(a.data.card.id,

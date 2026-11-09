@@ -1,11 +1,13 @@
 import { notFound } from 'next/navigation'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
-import { db, decisions, escalations, events, followups, messages, staff, waiting } from '@/lib/db'
+import { db, decisions, escalations, events, followups, messages, onboardingNotes, onboardingQuestions, staff, waiting } from '@/lib/db'
+import { clusterLabel, irregularClusterOn, onboardingProgress, sizeUnconfirmed, type ClusterStyle } from '@/lib/onboarding'
+import { onboardingUrl } from '@/lib/onboarding-server'
 import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
 import { areaLabel, decisionHeading } from '@/lib/feedback'
-import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, FlagSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, SettingQuestionPanel, StaffThread, type StaffThreadMessage } from './client'
+import { ChangesRequestedButton, CopyLink, DoNotEmailSwitch, FlagSwitch, StoneSwitch, DraftVersion, FollowupPanel, RepliedByEmailButton, NewVersionButton, QueuePanel, RingSizeControl, OnboardingPanel, StaffThread, type StaffThreadMessage } from './client'
 import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/working-hours'
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
@@ -18,18 +20,20 @@ export default async function JobPage({ params }: { params: { id: string } }) {
   if (!row) notFound()
   const { job, designerName } = row
 
-  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages, [openWait], [openEscalation], openFollowups] = await Promise.all([
+  const [allVersions, people, card, jobEvents, jobDecisions, jobMessages, [openWait], [openEscalation], openFollowups, obQuestions, obNotes] = await Promise.all([
     loadVersions(job.id),
     db.select({ id: staff.id, name: staff.name }).from(staff),
     // Read live so a "Do not email" label added in Trello shows straight away
     getCard(job.trelloCardId).catch(() => null),
     db.select({ type: events.type, details: events.details, staffId: events.staffId, createdAt: events.createdAt }).from(events)
-      .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested', 'customer_replied_by_email', 'designer_changed']))),
+      .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested', 'customer_replied_by_email', 'designer_changed', 'designer_assigned', 'ring_size_confirmed']))),
     db.select().from(decisions).where(eq(decisions.jobId, job.id)),
     db.select().from(messages).where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
     db.select().from(waiting).where(and(eq(waiting.jobId, job.id), isNull(waiting.answeredAt))),
     db.select().from(escalations).where(and(eq(escalations.jobId, job.id), isNull(escalations.resolvedAt))),
     db.select().from(followups).where(and(eq(followups.jobId, job.id), inArray(followups.status, ['active', 'requires_call', 'follow_up']))),
+    db.select().from(onboardingQuestions).where(eq(onboardingQuestions.jobId, job.id)).orderBy(asc(onboardingQuestions.createdAt)),
+    db.select().from(onboardingNotes).where(eq(onboardingNotes.jobId, job.id)).orderBy(asc(onboardingNotes.createdAt)),
   ])
   const now = new Date()
   const WAITING_FOR = { message: 'a reply to a message', decision: 'a response to their feedback', ring_size: 'their ring size to be confirmed' } as const
@@ -42,9 +46,13 @@ export default async function JobPage({ params }: { params: { id: string } }) {
       attachments: m.attachments.map(a => ({ url: a.url, name: a.name, isImage: a.contentType.startsWith('image/') })),
     }))
   // Card moved to another designer's lists in Trello (newest first)
-  const designerNotes = jobEvents.filter(e => e.type === 'designer_changed')
+  const designerNotes = jobEvents.filter(e => e.type === 'designer_changed' || e.type === 'designer_assigned')
     .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
     .map(e => {
+      if (e.type === 'designer_assigned') {
+        const a = e.details as { to: string; movedBy: string | null }
+        return `Assigned to ${a.to} when the card moved into their list${a.movedBy ? ` (by ${a.movedBy})` : ''}, ${formatSydney(e.createdAt)}`
+      }
       const d = e.details as { from: string; to: string; movedBy: string | null; updated: boolean }
       return `Moved from ${d.from} to ${d.to}${d.movedBy ? ` by ${d.movedBy}` : ''} in Trello, ${formatSydney(e.createdAt)}`
         + (d.updated ? '' : ` (no Studio designer called ${d.to}, so the designer wasn’t changed)`)
@@ -76,6 +84,14 @@ export default async function JobPage({ params }: { params: { id: string } }) {
   // The label is the source of truth when Trello can be reached (it may have changed a moment ago)
   const doNotEmail = card ? cardHasLabel(card, LABEL_DO_NOT_EMAIL) : job.doNotEmail
   const nextNumber = (allVersions[0]?.number ?? 0) + 1
+  const onboarding = onboardingProgress({
+    ringSizeStatus: sizeUnconfirmed(job.ringSizeStatus, job.ringSize) ? 'unconfirmed' : 'confirmed',
+    ringSizeNotSureAt: job.ringSizeNotSureAt,
+    sizeConfirmedByCustomer: jobEvents.some(e => e.type === 'ring_size_confirmed' && (e.details as { by?: string }).by === 'customer'),
+    settingQuestion: job.settingQuestion, settingChoice: job.settingChoice, settingNotNeeded: job.settingNotNeeded,
+    clusterOn: irregularClusterOn(job), clusterSavedAt: job.clusterSavedAt, questions: obQuestions,
+  })
+  const ONBOARDING_LABEL = { size: 'Ring size', setting: 'Setting', cluster: 'Irregular cluster', questions: 'Questions' } as const
 
   return (
     <div className="space-y-8">
@@ -134,7 +150,8 @@ export default async function JobPage({ params }: { params: { id: string } }) {
         <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-3">
           <div>
             <dt className="text-xs uppercase tracking-widest text-cocoa-light">Designer</dt>
-            <dd className="mt-1 text-ink">{designerName ?? 'Not set'}</dd>
+            <dd className="mt-1 text-ink">{designerName ?? 'Not assigned yet'}</dd>
+            {!designerName && <dd className="mt-1 text-xs text-stone">Picked up automatically when the card moves into a designer’s list.</dd>}
             {designerNotes.map((n, i) => <dd key={i} className="mt-1 text-xs text-stone">{n}</dd>)}
           </div>
           <div>
@@ -153,10 +170,17 @@ export default async function JobPage({ params }: { params: { id: string } }) {
         </dl>
       </section>
 
-      <SettingQuestionPanel jobId={job.id} url={`${reviewUrl(job)}/setting`} choice={job.settingChoice}
-        answeredBy={job.settingChoiceBy ? nameOf(job.settingChoiceBy) : null}
-        answeredAt={job.settingChoiceAt ? formatSydney(job.settingChoiceAt) : null}
-        notNeeded={job.settingNotNeeded} locked={published.length > 0} />
+      <OnboardingPanel jobId={job.id} url={onboardingUrl(job.publicCode)}
+        linkPostedAt={job.onboardingLinkPostedAt ? formatSydney(job.onboardingLinkPostedAt) : null}
+        progress={{ ...onboarding, sections: onboarding.sections.map(x => ({ label: ONBOARDING_LABEL[x.key], done: x.done })) }}
+        setting={{ on: job.settingQuestion, choice: job.settingChoice,
+          answeredBy: job.settingChoiceBy ? nameOf(job.settingChoiceBy) : null,
+          answeredAt: job.settingChoiceAt ? formatSydney(job.settingChoiceAt) : null, locked: published.length > 0 }}
+        cluster={{ on: irregularClusterOn(job), auto: job.irregularClusterAuto, override: job.irregularClusterOverride,
+          styles: (job.clusterStyles ?? []).map(k => clusterLabel(k as ClusterStyle)), savedAt: job.clusterSavedAt ? formatSydney(job.clusterSavedAt) : null }}
+        questions={obQuestions.map(q => ({ id: q.id, question: q.question, answer: q.answer,
+          answeredAt: q.answeredAt ? formatSydney(q.answeredAt) : null, askedBy: nameOf(q.askedBy) }))}
+        notes={obNotes.map(n => ({ id: n.id, body: n.body, photos: n.photos.map(x => x.url), when: formatSydney(n.createdAt) }))} />
 
       <QueuePanel jobId={job.id}
         waitingFor={openWait ? WAITING_FOR[openWait.reason] : null}

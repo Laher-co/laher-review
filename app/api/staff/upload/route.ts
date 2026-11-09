@@ -20,7 +20,19 @@ export async function POST(request: Request) {
         const session = await verifySession(cookies().get(SESSION_COOKIE)?.value)
         if (!session) throw new Error('Not signed in.')
 
-        const payload = JSON.parse(clientPayload ?? '{}') as { optionId?: string; settingImage?: string }
+        const payload = JSON.parse(clientPayload ?? '{}') as { optionId?: string; settingImage?: string; clusterImage?: string }
+
+        // Irregular cluster style images (Studio → Settings): Ryan only
+        if (payload.clusterImage) {
+          const [me] = await db.select({ role: staff.role }).from(staff).where(eq(staff.id, session.staffId))
+          if (me?.role !== 'owner') throw new Error('Only Ryan can change these images.')
+          if (!pathname.startsWith('clusters/')) throw new Error('Invalid upload path.')
+          return {
+            allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/avif'],
+            maximumSizeInBytes:  20 * 1024 * 1024,
+            addRandomSuffix:     true,
+          }
+        }
 
         // Setting question images (Studio → Settings): Ryan only
         if (payload.settingImage) {

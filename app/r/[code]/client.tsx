@@ -23,7 +23,7 @@ const newKey = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`)
 
 // ── Ring size bar ─────────────────────────────────────────────────────────────
 
-function RingSizePicker({ value, onChange }: { value: string; onChange(v: string): void }) {
+export function RingSizePicker({ value, onChange }: { value: string; onChange(v: string): void }) {
   const known = !value || AU_RING_SIZES.includes(value)
   const [other, setOther] = useState(!known)
   return (

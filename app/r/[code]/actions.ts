@@ -3,7 +3,7 @@
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { put } from '@vercel/blob'
-import { db, decisions, jobs, messages, options, renders, staff, versions, type Annotation, type ChangeRequest } from '@/lib/db'
+import { db, decisions, jobs, messages, onboardingNotes, onboardingQuestions, options, renders, staff, versions, type Annotation, type ChangeRequest } from '@/lib/db'
 import { emitWebhook, logEvent } from '@/lib/events'
 import { jobPayload } from '@/lib/payload'
 import { openWaiting } from '@/lib/waiting'
@@ -26,6 +26,7 @@ import { approvalComment, approvalRoute, roundState } from '@/lib/approval'
 import { parseDesignerList } from '@/lib/trello-parse'
 import { isSettingChoice, settingPath, settingState } from '@/lib/setting'
 import { recordSettingChoice } from '@/lib/setting-server'
+import { answerComment, cleanClusterStyles, clusterComment, irregularClusterOn, notesComment, onboardingPath } from '@/lib/onboarding'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -58,13 +59,80 @@ export async function chooseSetting(code: string, choice: string): Promise<Resul
   const { job } = await jobForCode(code)
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(versions)
     .where(and(eq(versions.jobId, job.id), eq(versions.status, 'published')))
-  const state = settingState(job, n)
+  // Only for jobs with SETTING QUESTION (and not marked not needed)
+  const state = settingState({ ...job, settingNotNeeded: job.settingNotNeeded || !job.settingQuestion }, n)
   if (state === 'not_needed') return { ok: false, error: 'There’s no need to choose: we have this covered for your design.' }
   if (state === 'locked' && job.settingChoice !== choice) {
     return { ok: false, error: 'Your design is already underway with this setting. Send us a message if you’d like to talk it through.' }
   }
   await recordSettingChoice(job, choice, null)
-  revalidatePath(settingPath(code))
+  revalidatePath(onboardingPath(code))
+  return { ok: true }
+}
+
+// ── Onboarding page ───────────────────────────────────────────────────────────
+
+const publishedCount = async (jobId: string) => (await db.select({ n: sql<number>`count(*)::int` }).from(versions)
+  .where(and(eq(versions.jobId, jobId), eq(versions.status, 'published'))))[0].n
+const LOCKED = 'Your design is already underway. Send us a message if you’d like to change anything.'
+
+/** "Not sure yet": the size stays unconfirmed (the gentle size reminders carry on as usual). */
+export async function markSizeNotSure(code: string): Promise<Result> {
+  const { job } = await jobForCode(code)
+  if (job.ringSizeStatus === 'confirmed') return { ok: true }
+  await db.update(jobs).set({ ringSizeNotSureAt: new Date(), updatedAt: new Date() }).where(eq(jobs.id, job.id))
+  await logEvent(job.id, null, 'ring_size_not_sure', { from: 'onboarding' })
+  revalidatePath(onboardingPath(code))
+  return { ok: true }
+}
+
+/** Irregular cluster styles (as many as they like). Editable until Version One is published. */
+export async function saveClusterStyles(code: string, input: string[]): Promise<Result> {
+  const { job } = await jobForCode(code)
+  if (!irregularClusterOn(job)) return { ok: false, error: 'There’s no need to choose: we have this covered for your design.' }
+  const styles = cleanClusterStyles(input)
+  if (!styles.length) return { ok: false, error: 'Please choose at least one style.' }
+  if (job.clusterSavedAt && await publishedCount(job.id) > 0) return { ok: false, error: LOCKED }
+  const same = job.clusterStyles?.join() === styles.join()
+  await db.update(jobs).set({ clusterStyles: styles, clusterSavedAt: new Date(), updatedAt: new Date() }).where(eq(jobs.id, job.id))
+  if (!same) {
+    await tracked('trello_comment', job.id, 'Post the irregular cluster styles on the Trello card',
+      { type: 'trello.comment', args: { cardId: job.trelloCardId, text: clusterComment(styles, !!job.clusterSavedAt) } })
+    await logEvent(job.id, null, 'cluster_styles_saved', { styles, from: job.clusterStyles })
+  }
+  revalidatePath(onboardingPath(code))
+  return { ok: true }
+}
+
+/** The customer's answer to one of the team's questions. Editable until Version One is published. */
+export async function answerStaffQuestion(code: string, questionId: string, raw: string): Promise<Result> {
+  const { job } = await jobForCode(code)
+  const answer = raw.trim().slice(0, 4000)
+  if (!answer) return { ok: false, error: 'Please write your answer first.' }
+  const [q] = await db.select().from(onboardingQuestions).where(and(eq(onboardingQuestions.id, questionId), eq(onboardingQuestions.jobId, job.id)))
+  if (!q) return { ok: false, error: 'That question isn’t available any more. Please refresh the page.' }
+  if (q.answer && await publishedCount(job.id) > 0) return { ok: false, error: LOCKED }
+  if (q.answer === answer) return { ok: true }
+  await db.update(onboardingQuestions).set({ answer, answeredAt: new Date() }).where(eq(onboardingQuestions.id, q.id))
+  await tracked('trello_comment', job.id, 'Post the customer’s answer on the Trello card',
+    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: answerComment(q.question, answer, !!q.answer) } })
+  await logEvent(job.id, null, 'onboarding_answer', { questionId: q.id, changed: !!q.answer })
+  revalidatePath(onboardingPath(code))
+  return { ok: true }
+}
+
+/** "Anything else for our designers?": notes and up to 5 inspiration photos. They can send more later. */
+export async function sendDesignerNotes(code: string, input: { body: string; images?: UploadedPhoto[] }): Promise<Result> {
+  const { job } = await jobForCode(code)
+  const body = (input.body ?? '').trim().slice(0, 8000)
+  const photos = checkedImages(job.id, input.images)
+  if (!body && !photos.length) return { ok: false, error: 'Please write a note or add a photo first.' }
+  await db.insert(onboardingNotes).values({ jobId: job.id, body, photos })
+  // Photos stay in Studio (not attached to Trello), like message photos
+  await tracked('trello_comment', job.id, 'Post the customer’s notes for the designer on the Trello card',
+    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: notesComment(body, photos.length) } })
+  await logEvent(job.id, null, 'onboarding_notes', { photos: photos.length })
+  revalidatePath(onboardingPath(code))
   return { ok: true }
 }
 

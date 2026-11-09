@@ -99,6 +99,13 @@
       "when": 1794215268340,
       "tag": "0013_setting_question",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794258475753,
+      "tag": "0014_onboarding",
+      "breakpoints": true
     }
   ]
 }

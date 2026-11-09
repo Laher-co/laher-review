@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { del } from '@vercel/blob'
-import { db, escalations, jobs, messages, options, renders, staff, versions, waiting } from '@/lib/db'
+import { db, escalations, jobs, messages, onboardingQuestions, options, renders, staff, versions, waiting } from '@/lib/db'
 import { checkStaffPassword, requireStaff } from '@/lib/auth'
 import { SESSION_COOKIE, SESSION_DAYS, signSession } from '@/lib/session'
 import { emitWebhook, logEvent } from '@/lib/events'
@@ -27,6 +27,8 @@ import { releaseHold, setFlag, type FlagKey } from '@/lib/job-flags'
 import { gemstoneDetails } from '@/lib/stone'
 import { isSettingChoice, settingPath } from '@/lib/setting'
 import { recordSettingChoice, setSettingImage } from '@/lib/setting-server'
+import { isClusterStyle, onboardingPath } from '@/lib/onboarding'
+import { notifyNewQuestion, postOnboardingLink, setClusterImage, setSettingQuestion, updateIrregularCluster } from '@/lib/onboarding-server'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
@@ -540,6 +542,73 @@ export async function saveSettingImage(choice: string, image: { url: string; pat
   const replaced = await setSettingImage(choice, image)
   if (replaced && replaced.url !== image?.url) await del(replaced.url).catch(() => {})
   await logEvent(null, session.staffId, 'setting_image_changed', { choice, removed: !image })
+  revalidatePath('/studio/settings')
+}
+
+// ── Onboarding page ───────────────────────────────────────────────────────────
+
+async function jobById(jobId: string) {
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId))
+  if (!job) throw new Error('Job not found.')
+  return job
+}
+const refreshOnboarding = (job: { id: string; publicCode: string }) => {
+  revalidatePath(`/studio/jobs/${job.id}`)
+  revalidatePath(onboardingPath(job.publicCode))
+}
+
+/** Posts "Onboarding link: …" on the card (once per card), the same as adding the ONBOARDING LINK label. */
+export async function postOnboardingLinkAction(jobId: string) {
+  await requireStaff()
+  const job = await jobById(jobId)
+  const posted = await postOnboardingLink(job)
+  refreshOnboarding(job)
+  return posted
+}
+
+/** Setting question on or off (the SETTING QUESTION label follows). */
+export async function setSettingQuestionAction(jobId: string, on: boolean) {
+  const session = await requireStaff()
+  const job = await jobById(jobId)
+  await setSettingQuestion(job, on, { staffId: session.staffId, source: 'studio' })
+  refreshOnboarding(job)
+}
+
+/** Irregular cluster question: on, off, or null to follow the card description again. */
+export async function setIrregularClusterAction(jobId: string, override: boolean | null) {
+  const session = await requireStaff()
+  const job = await jobById(jobId)
+  await updateIrregularCluster(job, { override }, session.staffId)
+  refreshOnboarding(job)
+}
+
+export async function addOnboardingQuestion(jobId: string, raw: string) {
+  const session = await requireStaff()
+  const question = raw.trim().slice(0, 1000)
+  if (!question) throw new Error('Write the question first.')
+  const job = await jobById(jobId)
+  await db.insert(onboardingQuestions).values({ jobId, question, askedBy: session.staffId })
+  await logEvent(jobId, session.staffId, 'onboarding_question_asked', { question })
+  await notifyNewQuestion(job, 'staff question')
+  refreshOnboarding(job)
+}
+
+export async function removeOnboardingQuestion(questionId: string) {
+  const session = await requireStaff()
+  const [q] = await db.delete(onboardingQuestions).where(eq(onboardingQuestions.id, questionId)).returning()
+  if (!q) return
+  await logEvent(q.jobId, session.staffId, 'onboarding_question_removed', { question: q.question, hadAnswer: !!q.answer })
+  refreshOnboarding(await jobById(q.jobId))
+}
+
+/** Ryan only: the image for one irregular cluster style (A–G), or null for the placeholder. */
+export async function saveClusterImage(style: string, image: { url: string; pathname: string } | null) {
+  const session = await requireOwner()
+  if (!isClusterStyle(style)) throw new Error('Unknown style.')
+  if (image && !image.pathname.startsWith('clusters/')) throw new Error('Invalid upload.')
+  const replaced = await setClusterImage(style, image)
+  if (replaced && replaced.url !== image?.url) await del(replaced.url).catch(() => {})
+  await logEvent(null, session.staffId, 'cluster_image_changed', { style, removed: !image })
   revalidatePath('/studio/settings')
 }
 
