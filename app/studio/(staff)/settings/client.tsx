@@ -146,9 +146,9 @@ export function SettingImageSlot({ choice, url }: { choice: SettingChoice; url: 
 
   return (
     <div className="overflow-hidden rounded-xl border border-sand bg-white">
-      <div className="relative aspect-[16/11] bg-linen">
+      <div className={`relative bg-linen ${url ? 'aspect-square' : 'aspect-[16/11]'}`}>
         {url
-          ? <Image src={url} alt={SETTING_COPY[choice].title} fill sizes="320px" className="object-cover" />
+          ? <Image src={url} alt={SETTING_COPY[choice].title} fill sizes="320px" className="object-contain" />
           : <SettingIllustration choice={choice} className="h-full w-full" />}
       </div>
       <div className="p-3">

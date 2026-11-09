@@ -12,9 +12,10 @@ type Images = Record<SettingChoice, string | null>
 function SettingImage({ choice, images, priority }: { choice: SettingChoice; images: Images; priority?: boolean }) {
   const url = images[choice]
   return (
-    <span className="relative block aspect-[16/11] w-full overflow-hidden bg-linen">
+    // Photos are square renders (two views): shown whole; the placeholder drawing is wider
+    <span className={`relative block w-full overflow-hidden bg-linen ${url ? 'aspect-square' : 'aspect-[16/11]'}`}>
       {url
-        ? <Image src={url} alt={SETTING_COPY[choice].title} fill sizes="(min-width: 640px) 360px, 100vw" className="object-cover" priority={priority} />
+        ? <Image src={url} alt={SETTING_COPY[choice].title} fill sizes="(min-width: 640px) 360px, 100vw" className="object-contain" priority={priority} />
         : <SettingIllustration choice={choice} className="h-full w-full" />}
     </span>
   )

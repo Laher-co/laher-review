@@ -39,7 +39,7 @@ export default async function SettingsPage() {
         <section className="mt-6 rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
           <h2 className="font-serif text-xl text-cocoa-dark">Setting question images</h2>
           <p className="mt-1 text-sm text-stone">
-            Shown on the customer’s setting question page. Landscape photos work best (shown at about 16:11).
+            Shown on the customer’s setting question page. Square images work best (shown whole, without cropping).
             Until you upload one, a placeholder illustration is shown.
           </p>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
