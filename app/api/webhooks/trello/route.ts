@@ -5,6 +5,7 @@ import { syncRingSizeFromCard } from '@/lib/ring-size-sync'
 import { getCard, getMyMemberId, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { syncDoNotEmail } from '@/lib/do-not-email'
 import { detectStone, handleSourcingMove, syncStoneFromLabel } from '@/lib/stone-sync'
+import { handleDesignerMove } from '@/lib/designer-move'
 import { isSourcingList, LABEL_STONE } from '@/lib/stone'
 import { FLAGS, releaseHold, syncFlagFromLabel, type FlagKey } from '@/lib/job-flags'
 import { parseDesignerList } from '@/lib/trello-parse'
@@ -20,6 +21,7 @@ export const GET  = () => new Response('ok')
 type TrelloAction = {
   type: string
   idMemberCreator?: string
+  memberCreator?: { fullName?: string }
   data: {
     customField?: { name?: string }
     card?: { id: string; name?: string }
@@ -154,8 +156,19 @@ export async function POST(request: Request) {
   if (!relevant) return NextResponse.json({ ok: true })
 
   try {
+    // Moved to another designer's lists: the job's designer follows (a note, not an issue)
+    const designer = a.data.listBefore?.name && a.data.listAfter?.name
+      ? await handleDesignerMove(a.data.card.id, a.data.listBefore.name, a.data.listAfter.name, a.memberCreator?.fullName ?? null)
+          .catch(async err => {
+            await recordIssue({
+              kind: 'trello_webhook', jobId: null, operation: null, error: err instanceof Error ? err.message : String(err),
+              summary: `Update the job’s designer after card ${a.data.card!.name ?? a.data.card!.id} moved designers`,
+            })
+            return 'failed'
+          })
+      : null
     const result = await ensureStudioLink(a.data.card.id)
-    return NextResponse.json({ ok: true, result })
+    return NextResponse.json({ ok: true, result, designer })
   } catch (err) {
     // Always answer 200 so Trello doesn't disable the webhook; the failure is logged
     await recordIssue({

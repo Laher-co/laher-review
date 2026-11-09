@@ -24,7 +24,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     // Read live so a "Do not email" label added in Trello shows straight away
     getCard(job.trelloCardId).catch(() => null),
     db.select({ type: events.type, details: events.details, staffId: events.staffId, createdAt: events.createdAt }).from(events)
-      .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested', 'customer_replied_by_email']))),
+      .where(and(eq(events.jobId, job.id), inArray(events.type, ['version_published', 'design_approved', 'changes_requested', 'customer_replied_by_email', 'designer_changed']))),
     db.select().from(decisions).where(eq(decisions.jobId, job.id)),
     db.select().from(messages).where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
     db.select().from(waiting).where(and(eq(waiting.jobId, job.id), isNull(waiting.answeredAt))),
@@ -41,6 +41,14 @@ export default async function JobPage({ params }: { params: { id: string } }) {
       byEmail: m.source === 'email',
       attachments: m.attachments.map(a => ({ url: a.url, name: a.name, isImage: a.contentType.startsWith('image/') })),
     }))
+  // Card moved to another designer's lists in Trello (newest first)
+  const designerNotes = jobEvents.filter(e => e.type === 'designer_changed')
+    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+    .map(e => {
+      const d = e.details as { from: string; to: string; movedBy: string | null; updated: boolean }
+      return `Moved from ${d.from} to ${d.to}${d.movedBy ? ` by ${d.movedBy}` : ''} in Trello, ${formatSydney(e.createdAt)}`
+        + (d.updated ? '' : ` (no Studio designer called ${d.to}, so the designer wasn’t changed)`)
+    })
   const emailReplyNotes = jobEvents.filter(e => e.type === 'customer_replied_by_email')
     .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
     .map(e => ({ by: people.find(p => p.id === e.staffId)?.name ?? 'Studio', when: formatSydney(e.createdAt), note: (e.details as { note?: string | null }).note ?? null }))
@@ -127,6 +135,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
           <div>
             <dt className="text-xs uppercase tracking-widest text-cocoa-light">Designer</dt>
             <dd className="mt-1 text-ink">{designerName ?? 'Not set'}</dd>
+            {designerNotes.map((n, i) => <dd key={i} className="mt-1 text-xs text-stone">{n}</dd>)}
           </div>
           <div>
             <dt className="text-xs uppercase tracking-widest text-cocoa-light">Trello</dt>
