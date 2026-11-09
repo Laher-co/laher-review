@@ -14,7 +14,7 @@ describe('setting question', () => {
   })
   it('posts “SETTING: [answer]” on the card', () => {
     expect(settingComment('high_set', { changed: false })).toBe('**SETTING: HIGH SET – straight wedding band**')
-    expect(settingComment('low_set', { changed: true, staffName: 'Heather' })).toBe('**SETTING (changed): LOW SET – curved wedding band** (set by Heather)')
+    expect(settingComment('low_set', { changed: true, staffName: 'Heather' })).toBe('**SETTING (changed): LOW SET – curved or split wedding band** (set by Heather)')
   })
   it('only accepts the two answers', () => {
     expect(isSettingChoice('high_set')).toBe(true)

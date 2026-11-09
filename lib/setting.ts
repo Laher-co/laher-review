@@ -6,9 +6,10 @@ export const SETTING_CHOICES: SettingChoice[] = ['high_set', 'low_set']
 
 export const SETTING_QUESTION = 'How would you like your engagement ring and wedding band to sit together?'
 
-export const SETTING_COPY: Record<SettingChoice, { title: string; label: string; points: string[] }> = {
+export const SETTING_COPY: Record<SettingChoice, { heading: string; subheading: string; label: string; points: string[] }> = {
   high_set: {
-    title: 'High set with a straight wedding band',
+    heading: 'HIGH SET / CATHEDRAL',
+    subheading: 'For a straight wedding band',
     label: 'HIGH SET – straight wedding band',
     points: [
       'Sits higher off the finger, which allows a straight wedding band to sit right beside it.',
@@ -17,11 +18,12 @@ export const SETTING_COPY: Record<SettingChoice, { title: string; label: string;
     ],
   },
   low_set: {
-    title: 'Low set with a curved wedding band',
-    label: 'LOW SET – curved wedding band',
+    heading: 'LOW SET / BASKET',
+    subheading: 'Requires a curved or split wedding band',
+    label: 'LOW SET – curved or split wedding band',
     points: [
       'Sits lower and closer to the finger, in a basket setting.',
-      'When you reach the wedding band stage, our designers will create a band that sits flush against your engagement ring, following the curve of the setting.',
+      'When you reach the wedding band stage, our designers will create a curved or split band that sits flush against your engagement ring, following the shape of the setting.',
     ],
   },
 }

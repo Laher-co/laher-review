@@ -148,11 +148,11 @@ export function SettingImageSlot({ choice, url }: { choice: SettingChoice; url: 
     <div className="overflow-hidden rounded-xl border border-sand bg-white">
       <div className={`relative bg-linen ${url ? 'aspect-square' : 'aspect-[16/11]'}`}>
         {url
-          ? <Image src={url} alt={SETTING_COPY[choice].title} fill sizes="320px" className="object-contain" />
+          ? <Image src={url} alt={SETTING_COPY[choice].heading} fill sizes="320px" className="object-contain" />
           : <SettingIllustration choice={choice} className="h-full w-full" />}
       </div>
       <div className="p-3">
-        <p className="text-sm font-medium text-cocoa-dark">{SETTING_COPY[choice].title}</p>
+        <p className="text-sm font-medium text-cocoa-dark">{SETTING_COPY[choice].heading} · {SETTING_COPY[choice].subheading}</p>
         <p className="mt-0.5 text-xs text-stone">{url ? 'Your photo' : 'Placeholder illustration'}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/avif" className="hidden"
