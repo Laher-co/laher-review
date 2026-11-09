@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import { db, decisions, escalations, events, followups, messages, onboardingNotes, onboardingQuestions, staff, waiting } from '@/lib/db'
 import { clusterLabel, irregularClusterOn, onboardingProgress, sizeUnconfirmed, type ClusterStyle } from '@/lib/onboarding'
 import { onboardingUrl } from '@/lib/onboarding-server'
+import { SETTING_COPY } from '@/lib/setting'
 import { getJob, loadVersions, reviewUrl } from '@/lib/jobs'
 import { cardHasLabel, getCard, LABEL_DO_NOT_EMAIL } from '@/lib/trello'
 import { formatSydney, versionTitle } from '@/lib/format'
@@ -95,6 +96,22 @@ export default async function JobPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-8">
+      <Brief
+        size={{ value: job.ringSize, status: job.ringSizeStatus,
+          when: job.ringSizeStatus === 'confirmed' && job.ringSizeConfirmedAt ? formatSydney(job.ringSizeConfirmedAt)
+            : job.ringSizeNotSureAt ? formatSydney(job.ringSizeNotSureAt) : null,
+          by: job.ringSizeStatus === 'confirmed' ? (job.ringSizeConfirmedBy ? nameOf(job.ringSizeConfirmedBy) : 'customer or Trello') : null,
+          notSure: !!job.ringSizeNotSureAt && job.ringSizeStatus !== 'confirmed' }}
+        setting={job.settingQuestion ? {
+          choice: job.settingChoice ? SETTING_COPY[job.settingChoice].label : null,
+          when: job.settingChoiceAt ? formatSydney(job.settingChoiceAt) : null,
+          by: job.settingChoiceBy ? nameOf(job.settingChoiceBy) : null } : null}
+        cluster={irregularClusterOn(job) ? {
+          styles: (job.clusterStyles ?? []).map(k => clusterLabel(k as ClusterStyle)),
+          when: job.clusterSavedAt ? formatSydney(job.clusterSavedAt) : null } : null}
+        questions={obQuestions.map(q => ({ id: q.id, question: q.question, answer: q.answer, when: q.answeredAt ? formatSydney(q.answeredAt) : null }))}
+        notes={obNotes.map(n => ({ id: n.id, body: n.body, photos: n.photos.map(x => x.url), when: formatSydney(n.createdAt) }))} />
+
       {/* Internal only: never shown to the customer */}
       {job.stoneNotSecured && (
         <div role="alert" className="rounded-2xl border-2 border-red-700 bg-red-700 px-5 py-5 text-white shadow-sm sm:px-6">
@@ -311,5 +328,80 @@ function DecisionCard({ decision: d, options, versionNumber, trello }: {
           images={d.annotations.map((a, i) => ({ url: a.drawingUrl, alt: `Customer drawing ${i + 1}`, caption: heading }))} />
       )}
     </div>
+  )
+}
+
+/** "Brief": everything the customer has told us up front, with when each was submitted. */
+function Brief({ size, setting, cluster, questions, notes }: {
+  size: { value: string | null; status: string; when: string | null; by: string | null; notSure: boolean }
+  setting: { choice: string | null; when: string | null; by: string | null } | null
+  cluster: { styles: string[]; when: string | null } | null
+  questions: { id: string; question: string; answer: string | null; when: string | null }[]
+  notes: { id: string; body: string; photos: string[]; when: string }[]
+}) {
+  const dt = 'text-xs uppercase tracking-widest text-cocoa-light'
+  const when = (w: string | null) => w ? <span className="ml-1.5 text-xs text-stone">· {w}</span> : null
+  const pending = <span className="text-stone">Not answered yet</span>
+  const notAsked = <span className="text-stone">Not asked</span>
+  return (
+    <section className="rounded-2xl border border-cocoa/25 bg-white p-5 shadow-sm sm:p-6">
+      <h2 className="font-serif text-2xl text-cocoa-dark">Brief</h2>
+      <dl className="mt-4 grid gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
+        <div>
+          <dt className={dt}>Ring size</dt>
+          <dd className="mt-1 text-ink">
+            {size.status === 'confirmed'
+              ? <><span className="font-semibold">{size.value}</span> (confirmed{size.by ? ` by ${size.by}` : ''}){when(size.when)}</>
+              : <>{size.value ? `${size.value} (unconfirmed)` : 'Unknown'}{size.notSure && <> · customer not sure yet{when(size.when)}</>}</>}
+          </dd>
+        </div>
+        <div>
+          <dt className={dt}>Setting</dt>
+          <dd className="mt-1 text-ink">
+            {!setting ? notAsked : setting.choice
+              ? <><span className="font-semibold">{setting.choice}</span>{setting.by ? ` (set by ${setting.by})` : ''}{when(setting.when)}</>
+              : pending}
+          </dd>
+        </div>
+        <div>
+          <dt className={dt}>Irregular cluster</dt>
+          <dd className="mt-1 text-ink">
+            {!cluster ? notAsked : cluster.styles.length
+              ? <><span className="font-semibold">{cluster.styles.join(', ')}</span>{when(cluster.when)}</>
+              : pending}
+          </dd>
+        </div>
+      </dl>
+      {questions.length > 0 && (
+        <div className="mt-5 border-t border-sand pt-4">
+          <p className={dt}>Questions from the team</p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {questions.map(q => (
+              <li key={q.id}>
+                <p className="font-medium text-cocoa-dark">{q.question}</p>
+                <p className="whitespace-pre-line text-ink">{q.answer ?? pending}{q.answer && when(q.when)}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {notes.length > 0 && (
+        <div className="mt-5 border-t border-sand pt-4">
+          <p className={dt}>Notes and photos from the customer</p>
+          <ul className="mt-2 space-y-3 text-sm">
+            {notes.map(n => (
+              <li key={n.id}>
+                <p className="text-xs text-stone">{n.when}</p>
+                {n.body && <p className="mt-0.5 whitespace-pre-line text-ink">{n.body}</p>}
+                {n.photos.length > 0 && (
+                  <LightboxThumbs className="mt-2 grid grid-cols-5 gap-1.5 sm:grid-cols-8" sizes="100px"
+                    images={n.photos.map((u, i) => ({ url: u, alt: `Inspiration photo ${i + 1}` }))} />
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   )
 }

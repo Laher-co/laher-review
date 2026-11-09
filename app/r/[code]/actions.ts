@@ -24,9 +24,9 @@ import { hasLabel, LABEL_DESIGN_APPROVED, LABEL_OLD_SYSTEM, SOURCING_LIST } from
 import { enterSourcing } from '@/lib/stone-sync'
 import { approvalComment, approvalRoute, roundState } from '@/lib/approval'
 import { parseDesignerList } from '@/lib/trello-parse'
-import { isSettingChoice, settingPath, settingState } from '@/lib/setting'
+import { isSettingChoice, SETTING_COPY, settingState } from '@/lib/setting'
 import { recordSettingChoice } from '@/lib/setting-server'
-import { answerComment, cleanClusterStyles, clusterComment, irregularClusterOn, notesComment, onboardingPath } from '@/lib/onboarding'
+import { answerComment, cleanClusterStyles, clusterComment, clusterLabel, irregularClusterOn, notesComment, onboardingPath } from '@/lib/onboarding'
 import type { Stroke } from '@/components/DrawingCanvas'
 
 type Result = { ok: true } | { ok: false; error: string }
@@ -65,7 +65,8 @@ export async function chooseSetting(code: string, choice: string): Promise<Resul
   if (state === 'locked' && job.settingChoice !== choice) {
     return { ok: false, error: 'Your design is already underway with this setting. Send us a message if you’d like to talk it through.' }
   }
-  await recordSettingChoice(job, choice, null)
+  const { changed } = await recordSettingChoice(job, choice, null)
+  if (changed) await alertCustomerAction(job.id, `Onboarding: setting${job.settingChoice ? ' (changed)' : ''}`, SETTING_COPY[choice].label)
   revalidatePath(onboardingPath(code))
   return { ok: true }
 }
@@ -82,6 +83,7 @@ export async function markSizeNotSure(code: string): Promise<Result> {
   if (job.ringSizeStatus === 'confirmed') return { ok: true }
   await db.update(jobs).set({ ringSizeNotSureAt: new Date(), updatedAt: new Date() }).where(eq(jobs.id, job.id))
   await logEvent(job.id, null, 'ring_size_not_sure', { from: 'onboarding' })
+  await alertCustomerAction(job.id, 'Onboarding: not sure of ring size yet', 'The customer chose “Not sure yet” for the ring size on their welcome page. It stays unconfirmed.')
   revalidatePath(onboardingPath(code))
   return { ok: true }
 }
@@ -99,6 +101,7 @@ export async function saveClusterStyles(code: string, input: string[]): Promise<
     await tracked('trello_comment', job.id, 'Post the irregular cluster styles on the Trello card',
       { type: 'trello.comment', args: { cardId: job.trelloCardId, text: clusterComment(styles, !!job.clusterSavedAt) } })
     await logEvent(job.id, null, 'cluster_styles_saved', { styles, from: job.clusterStyles })
+    await alertCustomerAction(job.id, `Onboarding: irregular cluster${job.clusterSavedAt ? ' (changed)' : ''}`, styles.map(clusterLabel).join('\n'))
   }
   revalidatePath(onboardingPath(code))
   return { ok: true }
@@ -117,6 +120,7 @@ export async function answerStaffQuestion(code: string, questionId: string, raw:
   await tracked('trello_comment', job.id, 'Post the customer’s answer on the Trello card',
     { type: 'trello.comment', args: { cardId: job.trelloCardId, text: answerComment(q.question, answer, !!q.answer) } })
   await logEvent(job.id, null, 'onboarding_answer', { questionId: q.id, changed: !!q.answer })
+  await alertCustomerAction(job.id, `Onboarding: question answered${q.answer ? ' (changed)' : ''}`, `Q: ${q.question}\nA: ${answer}`)
   revalidatePath(onboardingPath(code))
   return { ok: true }
 }
@@ -132,6 +136,7 @@ export async function sendDesignerNotes(code: string, input: { body: string; ima
   await tracked('trello_comment', job.id, 'Post the customer’s notes for the designer on the Trello card',
     { type: 'trello.comment', args: { cardId: job.trelloCardId, text: notesComment(body, photos.length) } })
   await logEvent(job.id, null, 'onboarding_notes', { photos: photos.length })
+  await alertCustomerAction(job.id, 'Onboarding: notes for the designer', body || `${photos.length} inspiration photo${photos.length > 1 ? 's' : ''}`, photos)
   revalidatePath(onboardingPath(code))
   return { ok: true }
 }

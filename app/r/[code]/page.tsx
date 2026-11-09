@@ -77,6 +77,12 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
         <p className="text-sm text-stone">Hi {firstName},</p>
         <h1 className="mt-1 font-serif text-[2rem] leading-tight text-cocoa-dark sm:text-4xl">Your bespoke design</h1>
         {designerName && <p className="mt-2 text-sm text-cocoa-light">Designed by {designerName}</p>}
+        {job.onboardingLinkPostedAt && (
+          <a href={`/r/${job.publicCode}/welcome`}
+            className="mt-3 inline-flex items-center gap-1.5 text-sm text-cocoa underline decoration-cocoa/30 underline-offset-4 hover:decoration-cocoa">
+            Your welcome page <span aria-hidden>→</span>
+          </a>
+        )}
 
         {!latest ? (
           <p className="mt-12 rounded-2xl border border-sand bg-white/60 px-6 py-12 text-center text-stone">
