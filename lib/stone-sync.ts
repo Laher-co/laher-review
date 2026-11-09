@@ -114,7 +114,8 @@ export async function handleSourcingMove(cardId: string, listBefore: string, lis
   await resumeFollowups(job)
   // An approval still held for the concept build or side stones goes back to
   // Alterations as approved (not as new changes): the hold drives the banner
-  const heldApproval = exit === 'alterations' && !!job.approvedHold && job.sourcing === 'approved'
+  // So does an approval still waiting on the customer's finger size
+  const heldApproval = exit === 'alterations' && job.sourcing === 'approved' && (!!job.approvedHold || job.status === 'approved_size_needed')
   const backToChanges = exit === 'alterations' && !heldApproval
   await db.update(jobs).set({
     sourcing: null, sourcingSince: null, updatedAt: new Date(),

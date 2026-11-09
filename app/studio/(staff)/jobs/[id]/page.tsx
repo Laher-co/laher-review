@@ -162,7 +162,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
         {job.status === 'approved_size_needed' && (
           <p className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <strong>Approved – size outstanding.</strong> The customer approved but isn’t sure of their ring size.
-            The Trello card is in Print Ready with the “Awaiting Finger Size” label; confirming a size below removes the label.
+            The Trello card has the “Awaiting Finger Size” label and stays out of Print Ready; confirming a size below removes the label and moves it to Print Ready (unless the stone is being sourced or it’s held in Alterations).
           </p>
         )}
         <RingSizeControl jobId={job.id} size={job.ringSize} status={job.ringSizeStatus}

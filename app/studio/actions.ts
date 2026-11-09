@@ -31,6 +31,8 @@ import { isClusterStyle, onboardingPath } from '@/lib/onboarding'
 import { markQuestionAdded, notifyNewQuestion, onboardingUrl, postOnboardingLink, setClusterImage, setSettingQuestion, updateIrregularCluster } from '@/lib/onboarding-server'
 import { moreQuestionEmail, welcomeEmail } from '@/lib/customer-email-templates'
 import { firstNameOf } from '@/lib/onboarding'
+import { sizeReleasesToPrintReady } from '@/lib/approval'
+import { moveToPrintReadyForSize } from '@/lib/size-release'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
@@ -312,7 +314,7 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
   const size = rawSize.trim().slice(0, 40)
   if (!size) throw new Error('Enter the ring size to confirm.')
 
-  const [before] = await db.select({ status: jobs.status }).from(jobs).where(eq(jobs.id, jobId))
+  const [before] = await db.select().from(jobs).where(eq(jobs.id, jobId))
   if (!before) throw new Error('Job not found.')
   // An approval that was waiting on the ring size can now go ahead
   const releasesApproval = before.status === 'approved_size_needed'
@@ -336,12 +338,14 @@ export async function confirmRingSize(jobId: string, rawSize: string) {
     { type: 'trello.removeLabel', args: { cardId, name: LABEL_AWAITING_SIZE } })
   await tracked('trello_comment', job.id, 'Post the ring size confirmation comment', {
     type: 'trello.comment', args: { cardId, text: releasesApproval
-      ? `**RING SIZE CONFIRMED: ${size}** (by ${session.name})\n\nThe approved design can now go ahead.`
+      ? `**RING SIZE CONFIRMED: ${size}** (by ${session.name})\n\nThe approved design can now go ahead${sizeReleasesToPrintReady(before) ? ': moving to Print Ready.' : '.'}`
       : `Finger size confirmed: ${size} (by ${session.name})` },
   })
+  // Approved with "Not sure of my size": now it can go to Print Ready
+  const trello = await moveToPrintReadyForSize(before, session.name)
   const [designer] = job.designerId
     ? await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId)) : []
-  await logEvent(job.id, session.staffId, 'ring_size_confirmed', { size, releasesApproval })
+  await logEvent(job.id, session.staffId, 'ring_size_confirmed', { size, releasesApproval, trello })
   await emitWebhook(job.id, 'ring_size_confirmed', { ...jobPayload(job, designer?.name ?? null), actor: { type: 'staff', name: session.name } })
   revalidatePath(`/studio/jobs/${jobId}`)
   revalidatePath(`/r/${job.publicCode}`)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { approvalComment, approvalRoute, roundState } from './approval'
+import { approvalComment, approvalRoute, roundState, sizeReleasesToPrintReady } from './approval'
 
 const none = { stoneNotSecured: false, conceptRender: false, sideStonesUnconfirmed: false, oldSystem: false }
 const what = 'Version Two, Option B'
@@ -15,6 +15,10 @@ describe('approvalRoute (flag priority)', () => {
   })
   it('otherwise Print Ready; OLD SYSTEM cards never go to sourcing', () => {
     expect(approvalRoute(none)).toEqual({ to: 'print_ready', hold: null })
+    // Not sure of their size: the card stays put unless another flag sends it somewhere
+    expect(approvalRoute({ ...none, sizeOutstanding: true })).toEqual({ to: 'stay', hold: null })
+    expect(approvalRoute({ ...none, sizeOutstanding: true, sideStonesUnconfirmed: true })).toEqual({ to: 'alterations', hold: 'side_stones' })
+    expect(approvalRoute({ ...none, sizeOutstanding: true, stoneNotSecured: true })).toEqual({ to: 'sourcing', hold: null })
     expect(approvalRoute({ ...none, stoneNotSecured: true, oldSystem: true })).toEqual({ to: 'print_ready', hold: null })
   })
 })
@@ -49,5 +53,15 @@ describe('roundState', () => {
     expect(roundState([v1], [{ decision: 'approved', concept: true, createdAt: '2026-11-02T00:00:00Z' }])).toBe('concept_approved')
     expect(roundState([v1, v2], [{ decision: 'approved', concept: true, createdAt: '2026-11-02T00:00:00Z' }])).toBe('open')
     expect(roundState([v1], [])).toBe('open')
+  })
+})
+
+describe('sizeReleasesToPrintReady', () => {
+  it('moves only an approval that was waiting on the size alone', () => {
+    expect(sizeReleasesToPrintReady({ status: 'approved_size_needed', approvedHold: null, sourcing: null })).toBe(true)
+    expect(sizeReleasesToPrintReady({ status: 'approved_size_needed', approvedHold: 'side_stones', sourcing: null })).toBe(false)
+    expect(sizeReleasesToPrintReady({ status: 'approved_size_needed', approvedHold: 'concept', sourcing: null })).toBe(false)
+    expect(sizeReleasesToPrintReady({ status: 'approved_size_needed', approvedHold: null, sourcing: 'approved' })).toBe(false)
+    expect(sizeReleasesToPrintReady({ status: 'in_review', approvedHold: null, sourcing: null })).toBe(false)
   })
 })
