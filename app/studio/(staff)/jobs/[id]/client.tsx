@@ -6,7 +6,7 @@ import { upload } from '@vercel/blob/client'
 import {
   addOption, addRender, confirmRingSize, createVersion, deleteDraftVersion, escalateJob, markHandledAction, moveRender,
   customerRepliedByEmail, logFollowupCall, setJobFlag, setStoneNotSecured, uploadStaffImage, markChangesRequested, publishVersion, setDoNotEmail, resolveEscalation, sendStaffReply,
-  removeOption, removeRender, saveVersionNote, setSettingChoiceAction,
+  removeOption, removeRender, saveVersionNote, setSettingChoiceAction, treatMessageAsChangeRequest, moveBackToRevision,
   addInternalNote, deleteInternalNote, editInternalNote,
   addOnboardingQuestion, postOnboardingLinkAction, removeOnboardingQuestion, sendOnboardingEmail, setIrregularClusterAction, setSettingQuestionAction,
 } from '../../../actions'
@@ -345,6 +345,10 @@ export function RingSizeControl({ jobId, size, status, confirmedBy, confirmedAt 
 export type StaffThreadMessage = {
   id: string; author: 'customer' | 'staff'; staffName: string | null; body: string; drawings: string[]; when: string
   byEmail: boolean; attachments: { url: string; name: string; isImage: boolean }[]
+  changeRequest?: 'sent' | 'added' | null   // sent as a change request, or added to one
+  sentIn?: string | null                    // the card's list when the customer sent it
+  answered?: string | null                  // their answer to "Is this a change?"
+  canTreat?: boolean                        // "Treat as change request" available
 }
 
 export function StaffThread({ jobId, versionId, title, customerName, messages }: {
@@ -401,6 +405,15 @@ export function StaffThread({ jobId, versionId, title, customerName, messages }:
                     ))}
                   </ul>
                 )}
+                {!staffMsg && (m.changeRequest || m.answered || m.sentIn) && (
+                  <p className="mt-1.5 flex flex-wrap gap-x-2 text-[11px] text-stone">
+                    {m.changeRequest === 'sent' && <span className="font-medium text-amber-800">Sent as a change request</span>}
+                    {m.changeRequest === 'added' && <span className="font-medium text-amber-800">Added to the change request</span>}
+                    {m.answered && <span>{m.answered}</span>}
+                    {m.sentIn && <span>Sent while in “{m.sentIn}”</span>}
+                  </p>
+                )}
+                {!staffMsg && m.canTreat && <MessageChangeButton messageId={m.id} />}
               </div>
             </li>
           )
@@ -589,6 +602,40 @@ export function RepliedByEmailButton({ jobId, notes }: { jobId: string; notes: {
 }
 
 /** Internal only: the customer asked for changes outside the portal (call, email, in person). */
+/** On a customer message sent in Revision: it was really a change. */
+export function MessageChangeButton({ messageId }: { messageId: string }) {
+  const { pending, error, run } = useAction()
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  return (
+    <div className="mt-2">
+      <button type="button" disabled={pending}
+        onClick={() => { if (confirm('Treat this message as a change request? The card moves to Alterations and the designer gets a CHANGES REQUESTED comment.')) run(async () => setResult(await treatMessageAsChangeRequest(messageId))) }}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-900 hover:bg-amber-50 disabled:opacity-50">
+        {pending && <Spinner />} Treat as change request
+      </button>
+      {result && <p className={`mt-1 text-xs ${result.ok ? 'text-stone' : 'text-red-700'}`}>{result.text}</p>}
+      {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+/** On a change request made from a message: undo it (card back to Revision). */
+export function MoveBackToRevisionButton({ decisionId }: { decisionId: string }) {
+  const { pending, error, run } = useAction()
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  return (
+    <div className="mt-3">
+      <button type="button" disabled={pending}
+        onClick={() => { if (confirm('Move the card back to Revision? This change request will no longer count and the message stays as a normal question.')) run(async () => setResult(await moveBackToRevision(decisionId))) }}
+        className={btnGhost}>
+        {pending && <Spinner />} Move back to Revision (just a question)
+      </button>
+      {result && <p className={`mt-1 text-xs ${result.ok ? 'text-stone' : 'text-red-700'}`}>{result.text}</p>}
+      {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+    </div>
+  )
+}
+
 export function ChangesRequestedButton({ jobId }: { jobId: string }) {
   const { pending, error, run } = useAction()
   const [result, setResult] = useState<string | null>(null)

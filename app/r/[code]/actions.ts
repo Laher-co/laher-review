@@ -29,6 +29,8 @@ import { isSettingChoice, SETTING_COPY, settingState } from '@/lib/setting'
 import { recordSettingChoice } from '@/lib/setting-server'
 import { answerComment, cleanClusterStyles, clusterComment, clusterLabel, irregularClusterOn, notesComment, onboardingPath } from '@/lib/onboarding'
 import type { Stroke } from '@/components/DrawingCanvas'
+import { askIfChange, liveDecisions, messageRoute } from '@/lib/message-routing'
+import { cardNow, changeRequestFromMessage, roundFor } from '@/lib/message-change-request'
 
 type Result = { ok: true } | { ok: false; error: string }
 
@@ -236,7 +238,7 @@ export async function submitDecision(code: string, input: DecisionInput): Promis
   // One change request per round, and nothing more once a full design is approved
   const round = roundState(
     (await db.select({ at: versions.publishedAt }).from(versions).where(and(eq(versions.jobId, job.id), eq(versions.status, 'published')))).map(v => v.at),
-    await db.select({ decision: decisions.decision, concept: decisions.concept, createdAt: decisions.createdAt }).from(decisions).where(eq(decisions.jobId, job.id)))
+    liveDecisions(await db.select({ decision: decisions.decision, concept: decisions.concept, createdAt: decisions.createdAt, voidedAt: decisions.voidedAt }).from(decisions).where(eq(decisions.jobId, job.id))))
   const who = designerName ?? 'your designer'
   if (round === 'approved') return { ok: false, error: 'Your design is approved.' }
   if (round === 'concept_approved') return { ok: false, error: `${who} is now building your full design. You’ll be able to review it soon.` }
@@ -446,6 +448,20 @@ export type MessageInput = {
   body: string
   annotations: AnnotationInput[]  // only on a version's thread
   images?: UploadedPhoto[]        // from uploadMessageImage, up to 5
+  // Their answer to "Is this a change you'd like to your design?" (only asked in Revision)
+  intent?: 'change' | 'question' | null
+}
+
+/**
+ * Asked when the customer presses Send, before anything uploads: is the card
+ * in Revision with the round open? Then the page asks "Is this a change you'd
+ * like to your design?". Read live from Trello; if Trello can't be reached,
+ * nothing is asked and the message goes as a normal message.
+ */
+export async function messageNeedsAnswer(code: string): Promise<{ ask: boolean; designer: string }> {
+  const { job, designerName } = await jobForCode(code)
+  const [card, r] = await Promise.all([cardNow(job.trelloCardId), roundFor(job.id)])
+  return { ask: !!r.latest && askIfChange(card, r.round), designer: designerName ?? 'your designer' }
 }
 
 /** One photo for a message (shrunk in the browser first). Called once per photo before sending. */
@@ -474,11 +490,32 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
     .where(and(eq(messages.jobId, job.id), eq(messages.author, 'customer'), gt(messages.createdAt, sql`now() - interval '1 hour'`)))
   if (n >= 30) return { ok: false, error: 'You’ve sent a lot of messages in the last hour. Please try again a little later.' }
 
+  // Where it goes depends on the card's list right now (read live):
+  // Revision + "Yes, it's a change" → change request; Alterations within 24
+  // hours of a change request → added to it; anything else → a normal message
+  // (Jane's queue, card stays where it is).
+  const [card, r] = await Promise.all([cardNow(job.trelloCardId), roundFor(job.id)])
+  const intent = input.intent === 'change' || input.intent === 'question' ? input.intent : null
+  const route = messageRoute({ card, round: r.round, intent, joinable: r.joinable })
+  const clientKey = input.clientKey.slice(0, 64) || null
+
+  if (route === 'change_request') {
+    // Saved as their message (it stays in the thread), then made a change request
+    const [m] = await db.insert(messages).values({
+      jobId: job.id, versionId: version?.id ?? null, author: 'customer', body, annotations, attachments: images,
+      source: 'page', clientKey, cardList: card?.listName ?? null, intent: 'change',
+    }).onConflictDoNothing({ target: messages.clientKey }).returning()
+    if (m) {
+      await logEvent(job.id, null, 'customer_message', { messageId: m.id, version: version?.number ?? null, source: 'page', cardList: card?.listName ?? null, intent: 'change' })
+      await changeRequestFromMessage(job, designerName, m.id, null)
+    }
+    return { ok: true }
+  }
   await recordCustomerMessage(job, designerName, {
     version: version ? { id: version.id, number: version.number } : null,
-    body, annotations, attachments: images, source: 'page', clientKey: input.clientKey.slice(0, 64) || null,
+    body, annotations, attachments: images, source: 'page', clientKey,
+    cardList: card?.listName ?? null, intent, addTo: route === 'add_to_request' ? r.joinable : null,
   })
-  // Messages never move the Trello card: they go to Jane's queue as normal
   revalidatePath(`/r/${code}`)
   return { ok: true }
 }

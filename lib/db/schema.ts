@@ -1,5 +1,6 @@
 import {
   pgTable, pgEnum, uuid, text, integer, timestamp, boolean, jsonb, uniqueIndex, index,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
@@ -159,6 +160,12 @@ export const messages = pgTable('messages', {
   attachments: jsonb('attachments').$type<MessageAttachment[]>().notNull().default([]),
   // One per send, generated in the browser: a double-tap can't post twice
   clientKey:   text('client_key').unique(),
+  // The Trello list the card was in when the customer sent it (read live)
+  cardList:    text('card_list'),
+  // Asked in Revision: "Is this a change you'd like to your design?"
+  intent:      text('intent').$type<'change' | 'question'>(),
+  // Part of a change request: sent as one, or a follow-up added to one
+  changeRequestId: uuid('change_request_id').references((): AnyPgColumn => decisions.id, { onDelete: 'set null' }),
   createdAt:   createdAt(),
 }, t => [index('messages_job').on(t.jobId, t.createdAt)])
 
@@ -179,6 +186,12 @@ export const decisions = pgTable('decisions', {
   // Generated once per submission in the browser, so a double-tap or retry
   // can't record the same response twice
   clientKey:   text('client_key').unique(),
+  // A change request made from a customer message ("Yes, it's a change", or staff "Treat as change request")
+  fromMessageId: uuid('from_message_id'),
+  markedBy:    uuid('marked_by').references(() => staff.id),           // staff who treated the message as a change
+  // "Move back to Revision (just a question)": the request no longer counts
+  voidedAt:    timestamp('voided_at', { withTimezone: true }),
+  voidedBy:    uuid('voided_by').references(() => staff.id),
   createdAt:   createdAt(),
 }, t => [index('decisions_job').on(t.jobId, t.createdAt)])
 

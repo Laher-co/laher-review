@@ -120,6 +120,13 @@
       "when": 1794264658498,
       "tag": "0016_internal_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794900000000,
+      "tag": "0017_message_changes",
+      "breakpoints": true
     }
   ]
 }

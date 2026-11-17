@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db, decisions, events, messages, staff } from '@/lib/db'
 import { getJobByCode, loadVersions, type FullVersion } from '@/lib/jobs'
 import { formatSydney, versionTitle } from '@/lib/format'
@@ -23,7 +23,8 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
   const { job, designerName } = row
   const [published, allDecisions, allMessages, releases] = await Promise.all([
     loadVersions(job.id, { publishedOnly: true }),
-    db.select().from(decisions).where(eq(decisions.jobId, job.id)).orderBy(asc(decisions.createdAt)),
+    // A change request staff moved back to Revision ("just a question") doesn't count
+    db.select().from(decisions).where(and(eq(decisions.jobId, job.id), isNull(decisions.voidedAt))).orderBy(asc(decisions.createdAt)),
     db.select({ m: messages, staffName: staff.name }).from(messages)
       .leftJoin(staff, eq(staff.id, messages.staffId))
       .where(eq(messages.jobId, job.id)).orderBy(asc(messages.createdAt)),
@@ -37,6 +38,8 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
       id: m.id, author: m.author, staffName, body: m.body,
       drawings: m.annotations.map(a => a.drawingUrl), when: formatSydney(m.createdAt),
       byEmail: m.source === 'email',
+      changeRequest: !m.changeRequestId ? null
+        : allDecisions.find(d => d.id === m.changeRequestId)?.fromMessageId === m.id ? 'sent' : 'added',
       attachments: m.attachments.map(a => ({ url: a.url, name: a.name, isImage: a.contentType.startsWith('image/') })),
     }))
   const designer = designerName ?? 'Your designer'
@@ -200,6 +203,8 @@ function VersionSection({ version: v, latest, decisions: ds, messages: msgs, cod
         })}
       </div>
 
+      {latest && <RenderNote />}
+
       {canRequestChanges && (
         <RequestChangesButton code={code} designer={designer} version={{ id: v.id, title }}
           options={v.options.map(o => ({ id: o.id, label: o.label, renders: o.renders.map(r => ({ id: r.id, url: r.blobUrl })) }))} />
@@ -223,6 +228,19 @@ function VersionSection({ version: v, latest, decisions: ds, messages: msgs, cod
           placeholder={`Write a comment about ${title}…`} />
       </div>
     </section>
+  )
+}
+
+/** The two questions customers ask most, answered under the renders. */
+function RenderNote() {
+  return (
+    <div className="mt-6 space-y-1.5 border-l-2 border-sand pl-4 text-sm leading-relaxed text-stone">
+      <p>Renders show the design, not the exact stone colour. Your real stone may look different in person.</p>
+      <p>
+        Wondering how a wedding band will sit with your ring?{' '}
+        <a href="#message-the-studio" className="text-cocoa underline decoration-cocoa/30 underline-offset-4 hover:decoration-cocoa">Just ask us in the message box.</a>
+      </p>
+    </div>
   )
 }
 

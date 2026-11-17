@@ -7,7 +7,7 @@ import { renderDrawingJpeg, type Stroke } from '@/components/DrawingCanvas'
 import LightboxThumbs from '@/components/LightboxThumbs'
 import { Spinner } from '@/components/brand'
 import { DrawEditor, Sheet } from './client'
-import { sendCustomerMessage, uploadAnnotation, uploadMessageImage } from './actions'
+import { messageNeedsAnswer, sendCustomerMessage, uploadAnnotation, uploadMessageImage } from './actions'
 import { AddPhotosButton, PhotoTray, usePhotoAttachments } from '@/components/PhotoAttach'
 
 export type ThreadMessage = {
@@ -18,6 +18,7 @@ export type ThreadMessage = {
   drawings: string[]
   when: string
   byEmail: boolean
+  changeRequest?: 'sent' | 'added' | null   // sent as a change request, or added to one
   attachments: { url: string; name: string; isImage: boolean }[]
 }
 type Render = { id: string; url: string }
@@ -47,6 +48,8 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
   const [editing, setEditing] = useState<Render | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
+  // Card in Revision: "Is this a change you'd like to your design?" before it goes
+  const [asking, setAsking] = useState<{ designer: string } | null>(null)
   // Photos: on the general thread ("Message the studio")
   const allowPhotos = versionId === null
   const photos = usePhotoAttachments()
@@ -76,10 +79,16 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
   const drawingCount = Object.keys(draft.drawings).length
   const canSend = (draft.body.trim() || drawingCount > 0 || photos.photos.length > 0) && !pending && photos.preparing === 0
 
-  function send() {
+  function send(intent?: 'change' | 'question') {
     setError(null)
+    setAsking(null)
     start(async () => {
       try {
+        // Ask first (before anything uploads) when the card is in Revision
+        if (!intent) {
+          const check = await messageNeedsAnswer(code).catch(() => ({ ask: false, designer: '' }))
+          if (check.ask) { setAsking({ designer: check.designer }); return }
+        }
         const annotations = []
         for (const [renderId, strokes] of Object.entries(draft.drawings)) {
           const r = renders.find(x => x.id === renderId)
@@ -94,7 +103,7 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
           annotations.push({ renderId, drawingUrl: up.drawingUrl, strokes })
         }
         const images = await photos.uploadAll(form => uploadMessageImage(code, form))
-        const res = await sendCustomerMessage(code, { clientKey: draft.clientKey, versionId, body: draft.body, annotations, images })
+        const res = await sendCustomerMessage(code, { clientKey: draft.clientKey, versionId, body: draft.body, annotations, images, intent: intent ?? null })
         if (!res.ok) throw new Error(res.error)
         setDraft({ body: '', drawings: {}, clientKey: newKey() })
         setPreviews({})
@@ -133,6 +142,11 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
                   {m.attachments.filter(a => !a.isImage).map(a => (
                     <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="mt-1.5 block text-sm underline">📎 {a.name}</a>
                   ))}
+                  {m.changeRequest && (
+                    <p className="mt-2 text-[11px] uppercase tracking-wider text-ivory/70">
+                      {m.changeRequest === 'sent' ? 'Sent as a change request' : 'Added to your change request'}
+                    </p>
+                  )}
                 </div>
               </li>
             )
@@ -176,12 +190,33 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
               ✎ Draw on the design
             </button>
           )}
-          <button type="button" onClick={send} disabled={!canSend}
+          <button type="button" onClick={() => send()} disabled={!canSend || !!asking}
             className="ml-auto flex items-center gap-2 rounded-xl bg-cocoa px-6 py-3 text-sm font-medium text-ivory hover:bg-cocoa-dark disabled:opacity-50">
             {pending && <Spinner />} Send
           </button>
         </div>
       </div>
+
+      {asking && (
+        <div role="dialog" aria-labelledby={`${key}-ask`} className="mt-3 rounded-xl border border-cocoa/25 bg-linen p-4">
+          <p id={`${key}-ask`} className="font-serif text-lg text-cocoa-dark">Is this a change you’d like to your design?</p>
+          <p className="mt-1 text-sm text-stone">
+            If it’s a change, we’ll pass it straight to {asking.designer} to update your design. If it’s a question, the studio team will reply here.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={() => send('change')} disabled={pending}
+              className="flex items-center justify-center gap-2 rounded-xl bg-cocoa px-5 py-3 text-sm font-medium text-ivory hover:bg-cocoa-dark disabled:opacity-50">
+              Yes, it’s a change
+            </button>
+            <button type="button" onClick={() => send('question')} disabled={pending}
+              className="flex items-center justify-center gap-2 rounded-xl border border-cocoa/30 bg-white px-5 py-3 text-sm font-medium text-cocoa hover:bg-ivory disabled:opacity-50">
+              No, just a question
+            </button>
+            <button type="button" onClick={() => setAsking(null)} disabled={pending}
+              className="px-3 py-2 text-sm text-stone underline underline-offset-4 sm:ml-auto">Not yet</button>
+          </div>
+        </div>
+      )}
 
       {picking && !editing && (
         <Sheet title="Choose an image to draw on" onClose={() => setPicking(false)}>

@@ -9,6 +9,7 @@ import { alertCustomerAction } from './alerts'
 import { stopFollowups } from './followups'
 import { siteOrigin } from './jobs'
 import { versionTitle } from './format'
+import { addedToRequestComment } from './message-routing'
 
 /**
  * Records a customer message and does everything a customer message does:
@@ -27,11 +28,16 @@ export async function recordCustomerMessage(job: typeof jobs.$inferSelect, desig
   source: 'page' | 'email'
   emailFrom?: string | null
   clientKey: string | null
+  cardList?: string | null                 // the card's list when it was sent (read live)
+  intent?: 'change' | 'question' | null    // their answer to "Is this a change you'd like to your design?"
+  // A follow-up within 24 hours of a change request: added to it for the designer
+  addTo?: { id: string; versionNumber: number } | null
 }) {
   const annotations = m.annotations ?? [], attachments = m.attachments ?? []
   const inserted = await db.insert(messages).values({
     jobId: job.id, versionId: m.version?.id ?? null, author: 'customer', body: m.body, annotations,
     attachments, source: m.source, emailFrom: m.emailFrom ?? null, clientKey: m.clientKey,
+    cardList: m.cardList ?? null, intent: m.intent ?? null, changeRequestId: m.addTo?.id ?? null,
   }).onConflictDoNothing({ target: messages.clientKey }).returning()
   if (inserted.length === 0) return null
   await db.update(jobs).set({ updatedAt: new Date() }).where(eq(jobs.id, job.id))
@@ -47,8 +53,14 @@ export async function recordCustomerMessage(job: typeof jobs.$inferSelect, desig
   if (photos.length) blocks.push(photoNote(photos.length))
   if (otherFiles.length) blocks.push([`Attachment${otherFiles.length > 1 ? 's' : ''}:`, ...otherFiles.map(a => a.url)].join('\n'))
   blocks.push(`Reply in the studio: ${siteOrigin()}/studio/jobs/${job.id}`)
-  await tracked('trello_comment', job.id, `Post the customer’s message${how} (${where}) on the Trello card`,
-    { type: 'trello.comment', args: { cardId: job.trelloCardId, text: blocks.join('\n\n') } })
+  // Added to a change request: the designer sees it as part of the request
+  const text = m.addTo
+    ? addedToRequestComment(versionTitle(m.addTo.versionNumber), m.body, [...blocks.slice(m.body ? 2 : 1)])
+    : blocks.join('\n\n')
+  await tracked('trello_comment', job.id, m.addTo
+    ? `Post the customer’s follow-up${how} (added to the change request on ${versionTitle(m.addTo.versionNumber)}) on the Trello card`
+    : `Post the customer’s message${how} (${where}) on the Trello card`,
+    { type: 'trello.comment', args: { cardId: job.trelloCardId, text } })
   const files = [
     ...annotations.map(x => ({ url: x.drawingUrl, kind: 'drawing' })),
     ...otherFiles.map(x => ({ url: x.url, kind: 'attachment' })),
@@ -65,8 +77,11 @@ export async function recordCustomerMessage(job: typeof jobs.$inferSelect, desig
     annotations.length ? `[${annotations.length} drawing${annotations.length > 1 ? 's' : ''} attached]` : '',
     attachments.length ? `[${attachments.length} ${attachments.every(a => a.contentType.startsWith('image/')) ? 'photo' : 'file'}${attachments.length > 1 ? 's' : ''} attached]` : '',
   ]
-  await alertCustomerAction(job.id, `New message${how} (${where})`, [m.body, ...extras].filter(Boolean).join('\n'), attachments)
-  await logEvent(job.id, null, 'customer_message', { messageId: inserted[0].id, version: m.version?.number ?? null, source: m.source })
+  await alertCustomerAction(job.id, m.addTo ? `Added to the change request${how} (${versionTitle(m.addTo.versionNumber)})` : `New message${how} (${where})`, [m.body, ...extras].filter(Boolean).join('\n'), attachments)
+  await logEvent(job.id, null, 'customer_message', {
+    messageId: inserted[0].id, version: m.version?.number ?? null, source: m.source,
+    cardList: m.cardList ?? null, intent: m.intent ?? null, addedTo: m.addTo?.id ?? null,
+  })
   await emitWebhook(job.id, 'message_created', {
     ...jobPayload(job, designerName),
     message: {

@@ -5,6 +5,8 @@ import { db, jobs, staff, type MessageAttachment } from './db'
 import { logEvent } from './events'
 import { recordCustomerMessage } from './customer-message'
 import { heicToJpeg } from './heic'
+import { cardNow, roundFor } from './message-change-request'
+import { messageRoute } from './message-routing'
 import { htmlToText, isAutoReply, stripQuotedReply, tokenFromAddress } from './email-reply'
 
 const resend = async <T>(path: string): Promise<T> => {
@@ -60,9 +62,14 @@ export async function processInboundEmail(emailId: string) {
     attachments.push({ url: blob.url, name, contentType, size: data.byteLength })
   }
 
+  // Email replies are never asked "Is this a change?": in Alterations within
+  // 24 hours of a change request they're added to it, otherwise a normal message
+  const [card, r] = await Promise.all([cardNow(row.job.trelloCardId), roundFor(row.job.id)])
+  const route = messageRoute({ card, round: r.round, intent: null, joinable: r.joinable })
   const msg = await recordCustomerMessage(row.job, row.designer, {
     version: null, body: body || (attachments.length ? '' : '(empty reply)'), attachments,
     source: 'email', emailFrom: email.from, clientKey: `email:${emailId}`,
+    cardList: card?.listName ?? null, addTo: route === 'add_to_request' ? r.joinable : null,
   })
   return msg ? { action: 'recorded', messageId: msg.id } : { action: 'duplicate' }
 }
