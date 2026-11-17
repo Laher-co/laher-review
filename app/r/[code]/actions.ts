@@ -64,9 +64,9 @@ export async function chooseSetting(code: string, choice: string): Promise<Resul
     .where(and(eq(versions.jobId, job.id), eq(versions.status, 'published')))
   // Only for jobs with SETTING QUESTION (and not marked not needed)
   const state = settingState({ ...job, settingNotNeeded: job.settingNotNeeded || !job.settingQuestion }, n)
-  if (state === 'not_needed') return { ok: false, error: 'There’s no need to choose: we have this covered for your design.' }
+  if (state === 'not_needed') return { ok: false, error: 'No need to choose: we’ve got this covered.' }
   if (state === 'locked' && job.settingChoice !== choice) {
-    return { ok: false, error: 'Your design is already underway with this setting. Send us a message if you’d like to talk it through.' }
+    return { ok: false, error: 'Your design uses this setting. Message us to talk it through.' }
   }
   const { changed } = await recordSettingChoice(job, choice, null)
   if (changed) await alertCustomerAction(job.id, `Onboarding: setting${job.settingChoice ? ' (changed)' : ''}`, SETTING_COPY[choice].label)
@@ -94,7 +94,7 @@ export async function markSizeNotSure(code: string): Promise<Result> {
 /** Irregular cluster styles (as many as they like). Editable until Version One is published. */
 export async function saveClusterStyles(code: string, input: string[]): Promise<Result> {
   const { job } = await jobForCode(code)
-  if (!irregularClusterOn(job)) return { ok: false, error: 'There’s no need to choose: we have this covered for your design.' }
+  if (!irregularClusterOn(job)) return { ok: false, error: 'No need to choose: we’ve got this covered.' }
   const styles = cleanClusterStyles(input)
   if (!styles.length) return { ok: false, error: 'Please choose at least one style.' }
   if (job.clusterSavedAt && await publishedCount(job.id) > 0) return { ok: false, error: LOCKED }
@@ -488,7 +488,7 @@ export async function sendCustomerMessage(code: string, input: MessageInput): Pr
   // Simple guard against a runaway script: plenty for a real customer
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(messages)
     .where(and(eq(messages.jobId, job.id), eq(messages.author, 'customer'), gt(messages.createdAt, sql`now() - interval '1 hour'`)))
-  if (n >= 30) return { ok: false, error: 'You’ve sent a lot of messages in the last hour. Please try again a little later.' }
+  if (n >= 30) return { ok: false, error: 'Lots of messages this hour. Please try again soon.' }
 
   // Where it goes depends on the card's list right now (read live):
   // Revision + "Yes, it's a change" → change request; Alterations within 24

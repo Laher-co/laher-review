@@ -62,7 +62,7 @@ export function RingSizeSection({ code, size, unconfirmed, notSure, messageLink 
   if (!unconfirmed) {
     return (
       <div className="mt-4 rounded-2xl border border-sand bg-white px-5 py-5">
-        <p className="text-[15px] text-ink">Your ring size: <span className="font-serif text-2xl text-cocoa-dark">{size}</span></p>
+        <p className="text-[15px] text-ink">Ring size: <span className="font-serif text-2xl text-cocoa-dark">{size}</span></p>
         <Link href={messageLink} className="mt-1 inline-block text-sm text-stone underline underline-offset-4 hover:text-cocoa">Not right? Let us know</Link>
       </div>
     )
@@ -71,10 +71,10 @@ export function RingSizeSection({ code, size, unconfirmed, notSure, messageLink 
   return (
     <div className="mt-4">
       <p className="text-[15.5px] leading-relaxed text-ink">
-        If you know the ring size, add it here.{hint ? ` We’ve noted around ${hint} so far.` : ''}
+        Know the size? Add it here.{hint ? ` We’ve noted around ${hint}.` : ''}
       </p>
       {notSure && (
-        <p className="mt-3 rounded-xl bg-linen px-4 py-3 text-[15px] text-ink">No problem, there’s no rush. You can add it here whenever you’re ready.</p>
+        <p className="mt-3 rounded-xl bg-linen px-4 py-3 text-[15px] text-ink">No rush. Add it whenever you’re ready.</p>
       )}
       <div className="mt-4 rounded-2xl border border-sand bg-white p-4 sm:p-5">
         <label className="mb-2 block text-sm font-medium text-cocoa-dark">Ring size</label>
@@ -82,7 +82,7 @@ export function RingSizeSection({ code, size, unconfirmed, notSure, messageLink 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <button type="button" className={primary} disabled={pending || !value.trim()}
             onClick={() => run(() => submitRingSize(code, value))}>
-            {pending && <Spinner />} Save ring size
+            {pending && <Spinner />} Save
           </button>
           {!notSure && (
             <button type="button" className={secondary} disabled={pending} onClick={() => run(() => markSizeNotSure(code))}>
@@ -95,14 +95,14 @@ export function RingSizeSection({ code, size, unconfirmed, notSure, messageLink 
 
       <details className="group mt-4 rounded-2xl border border-sand bg-white/70">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-[15px] font-medium text-cocoa-dark">
-          How to find their ring size (without giving away the surprise)
+          How to find their size secretly
           <span aria-hidden className="text-xl text-cocoa-light transition-transform group-open:rotate-45">+</span>
         </summary>
         <div className="space-y-3 border-t border-sand px-5 pb-5 pt-4 text-[15px] leading-relaxed text-ink">
-          <p><span className="font-semibold text-cocoa-dark">Ask a friend or family member:</span> they may already know, or can find out discreetly. Just make sure they can keep a secret.</p>
-          <p><span className="font-semibold text-cocoa-dark">Borrow one of their rings:</span> choose one they don’t wear often, and note which finger they wear it on, as sizes differ between fingers and hands. Bring it to us and we’ll measure it for you.</p>
-          <p><span className="font-semibold text-cocoa-dark">The decoy:</span> wear a pinky ring yourself. At some point they’ll want to try it on. Note which finger they put it on and how well it fits, and we can use that as a reference.</p>
-          <p className="rounded-xl bg-linen px-4 py-3">Don’t stress about perfection: most rings can be resized easily, and getting close is enough. We’ll also lean slightly larger, so the ring slips on for the proposal.</p>
+          <p><span className="font-semibold text-cocoa-dark">Ask a friend or family member.</span> They may know, or can find out. Make sure they can keep a secret.</p>
+          <p><span className="font-semibold text-cocoa-dark">Borrow a ring</span> they rarely wear. Note which finger it’s for, and bring it in for us to measure.</p>
+          <p><span className="font-semibold text-cocoa-dark">The decoy:</span> wear a pinky ring. When they try it on, note the finger and the fit.</p>
+          <p className="rounded-xl bg-linen px-4 py-3">Close is enough. Most rings resize easily, and we go slightly larger so it slips on for the proposal.</p>
         </div>
       </details>
     </div>
@@ -120,8 +120,9 @@ function ClusterPlaceholder({ k }: { k: ClusterStyle }) {
   )
 }
 
-export function ClusterChooser({ code, initial, saved, locked, images }: {
+export function ClusterChooser({ code, initial, saved, locked, images, compact }: {
   code: string; initial: string[]; saved: boolean; locked: boolean; images: Record<string, string | null>
+  compact?: boolean   // in the narrow "Your brief" panel
 }) {
   const [picked, setPicked] = useState<string[]>(initial)
   const [savedSet, setSavedSet] = useState<string[] | null>(saved ? initial : null)
@@ -135,7 +136,7 @@ export function ClusterChooser({ code, initial, saved, locked, images }: {
 
   return (
     <div className="mt-5">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+      <div className={`grid grid-cols-2 gap-3 ${compact ? '' : 'sm:grid-cols-3 sm:gap-4'}`}>
         {CLUSTER_STYLES.map(s => {
           const on = picked.includes(s.key)
           const url = images[s.key]
@@ -169,12 +170,12 @@ export function ClusterChooser({ code, initial, saved, locked, images }: {
 
       <div className="mt-5 rounded-2xl border border-sand bg-white/70 p-4 sm:p-5" role="status">
         {locked ? (
-          <p className="text-[15px] text-ink">Your choice: {ordered.join(', ') || '—'}. Your design is underway with this.</p>
+          <p className="text-[15px] text-ink">Your choice: {ordered.join(', ') || '—'}</p>
         ) : !dirty ? (
-          <p className="flex items-center gap-2 text-[15px] text-ink"><Tick className="h-4 w-4 text-[#3F4A3A]" /> Thank you, we’ve noted {ordered.length > 1 ? 'these' : 'that'}. You can change your choice any time before your first designs.</p>
+          <p className="flex items-center gap-2 text-[15px] text-ink"><Tick className="h-4 w-4 text-[#3F4A3A]" /> Noted, thank you. You can change this until your first design.</p>
         ) : (
           <>
-            <p className="text-[15px] text-stone">{ordered.length ? `Selected: ${ordered.join(', ')}` : 'Select one or more styles above.'}</p>
+            <p className="text-[15px] text-stone">{ordered.length ? `Selected: ${ordered.join(', ')}` : 'Select one or more.'}</p>
             <button type="button" className={`${primary} mt-3 w-full`} disabled={pending || !ordered.length}
               onClick={() => run(() => saveClusterStyles(code, ordered), () => setSavedSet(picked))}>
               {pending && <Spinner />} Save
@@ -255,7 +256,7 @@ export function DesignerNotes({ code, sent }: {
           {sent.map(n => (
             <li key={n.id} className="rounded-2xl border border-sand bg-white p-4">
               <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-cocoa-light">
-                <Tick className="h-3.5 w-3.5 text-[#3F4A3A]" /> Sent to our designers · {n.when}
+                <Tick className="h-3.5 w-3.5 text-[#3F4A3A]" /> Sent · {n.when}
               </p>
               {n.body && <p className="mt-2 whitespace-pre-line text-[15px] leading-relaxed text-ink">{n.body}</p>}
               {n.photos.length > 0 && (
@@ -268,20 +269,20 @@ export function DesignerNotes({ code, sent }: {
       )}
       <div className={`rounded-2xl border border-sand bg-white p-4 sm:p-5 ${photos.dragging ? 'outline-dashed outline-2 outline-offset-4 outline-cocoa' : ''}`} {...photos.dropProps}>
         <textarea value={body} onChange={e => setBody(e.target.value)} rows={4} maxLength={8000}
-          placeholder={sent.length ? 'Anything more to add?' : 'For example: a ring you love, a style you’d like to avoid…'} className={field} />
+          placeholder={sent.length ? 'Anything else?' : 'e.g. a ring you love…'} className={field} />
         <PhotoTray photos={photos.photos} preparing={photos.preparing} onRemove={photos.remove} />
         {photos.errors.map(e => <p key={e} role="alert" className="mt-2 text-sm text-red-700">{e}</p>)}
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <AddPhotosButton onFiles={photos.add} disabled={photos.full || pending}
             className="inline-flex items-center gap-2 rounded-xl border border-sand bg-white px-4 py-3 text-[15px] text-cocoa hover:bg-linen disabled:opacity-50" />
-          <span className="text-xs text-stone">Up to 5 inspiration photos</span>
+          <span className="text-xs text-stone">Up to 5 photos</span>
         </div>
         <button type="button" className={`${primary} mt-4 w-full`} disabled={!canSend}
           onClick={() => run(async () => {
             const images = await photos.uploadAll(form => uploadMessageImage(code, form))
             return sendDesignerNotes(code, { body, images })
           }, () => { setBody(''); photos.clear() })}>
-          {pending && <Spinner />} Send to our designers
+          {pending && <Spinner />} Send
         </button>
         {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
       </div>

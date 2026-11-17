@@ -7,7 +7,7 @@ import DrawingCanvas, {
   PEN_COLOURS, PEN_SIZES, renderDrawingJpeg, type DrawingHandle, type Stroke,
 } from '@/components/DrawingCanvas'
 import { Spinner } from '@/components/brand'
-import { AU_RING_SIZES, CHANGE_AREAS, RING_SIZE_STATUS_LABEL, type ChangeArea } from '@/lib/feedback'
+import { AU_RING_SIZES, CHANGE_AREAS, type ChangeArea } from '@/lib/feedback'
 import { noteAround } from '@/lib/ring-size'
 import { submitDecision, submitRingSize, uploadAnnotation } from './actions'
 
@@ -18,6 +18,9 @@ type RingStatus = 'unconfirmed' | 'submitted' | 'confirmed'
 const primary = 'flex w-full items-center justify-center gap-2 rounded-xl bg-cocoa px-5 py-4 text-[15px] font-medium tracking-wide text-ivory transition-colors hover:bg-cocoa-dark disabled:opacity-50'
 const secondary = 'flex w-full items-center justify-center gap-2 rounded-xl border border-cocoa/40 bg-white px-5 py-4 text-[15px] font-medium tracking-wide text-cocoa transition-colors hover:bg-linen disabled:opacity-50'
 const backBtn = 'flex items-center justify-center gap-1 rounded-xl border border-sand bg-white px-5 py-4 text-[15px] text-cocoa hover:bg-linen'
+
+// Ring size status as the customer sees it (Studio keeps the longer labels)
+const CUSTOMER_SIZE_LABEL = { unconfirmed: 'Unconfirmed', submitted: 'Awaiting confirmation', confirmed: 'Confirmed' } as const
 
 const newKey = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`)
 
@@ -31,9 +34,9 @@ export function RingSizePicker({ value, onChange }: { value: string; onChange(v:
       <select value={other ? 'other' : value}
         onChange={e => { if (e.target.value === 'other') { setOther(true); onChange('') } else { setOther(false); onChange(e.target.value) } }}
         className="w-full rounded-lg border border-sand bg-white px-3 py-3 text-base text-ink focus:border-cocoa focus:outline-none">
-        <option value="">Choose a size (Australian)</option>
+        <option value="">Choose size (AU)</option>
         {AU_RING_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-        <option value="other">Another size or system (e.g. US 6)</option>
+        <option value="other">Other (e.g. US 6)</option>
       </select>
       {other && (
         <input value={value} onChange={e => onChange(e.target.value)} placeholder="e.g. US 6½" maxLength={40}
@@ -69,18 +72,18 @@ export function RingSizeBar({ code, size, status }: { code: string; size: string
             {size && status !== 'unconfirmed' && <strong className="font-semibold">{size}</strong>}{' '}
             <span className={`ml-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
               status === 'confirmed' ? 'bg-cocoa text-ivory' : status === 'submitted' ? 'border border-cocoa/30 text-cocoa' : 'bg-amber-700 text-white'}`}>
-              {RING_SIZE_STATUS_LABEL[status]}
+              {CUSTOMER_SIZE_LABEL[status]}
             </span>
-            {status === 'unconfirmed' && size && <span className="ml-1.5 text-cocoa-dark">– {noteAround(size)}</span>}
+            {status === 'unconfirmed' && size && <span className="ml-1.5 text-cocoa-dark">– {noteAround(size.replace(/\(?\s*tbc\s*\)?/i, '').trim())}</span>}
           </p>
           {status !== 'confirmed' && !open && (
             <button onClick={() => setOpen(true)} className="text-sm font-medium text-cocoa underline underline-offset-4">
-              {status === 'unconfirmed' ? 'Add my ring size' : 'Change'}
+              {status === 'unconfirmed' ? 'Add size' : 'Change'}
             </button>
           )}
         </div>
         {status === 'unconfirmed' && !open && (
-          <p className="mt-1 text-xs text-cocoa-light">We need your finger size before your ring goes into production.</p>
+          <p className="mt-1 text-xs text-cocoa-light">Needed before production.</p>
         )}
         {open && (
           <div className="mt-3 rounded-xl border border-sand bg-white p-4">
@@ -90,7 +93,7 @@ export function RingSizeBar({ code, size, status }: { code: string; size: string
             <div className="mt-3 flex gap-2">
               <button onClick={send} disabled={pending || !value.trim()}
                 className="flex items-center gap-2 rounded-lg bg-cocoa px-4 py-2.5 text-sm text-ivory disabled:opacity-50">
-                {pending && <Spinner />} Send my size
+                {pending && <Spinner />} Save
               </button>
               <button onClick={() => setOpen(false)} className="px-3 text-sm text-stone underline">Cancel</button>
             </div>
@@ -146,7 +149,7 @@ function Done({ title, body, onClose }: { title: string; body: string; onClose()
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-cocoa text-2xl text-ivory">✓</div>
       <h3 className="mt-5 font-serif text-2xl text-cocoa-dark">{title}</h3>
       <p className="mx-auto mt-2 max-w-sm text-[15px] leading-relaxed text-stone">{body}</p>
-      <button onClick={onClose} className="mt-8 text-sm font-medium text-cocoa underline underline-offset-4">Back to my design</button>
+      <button onClick={onClose} className="mt-8 text-sm font-medium text-cocoa underline underline-offset-4">Back to design</button>
     </div>
   )
 }
@@ -163,7 +166,7 @@ export function ApproveButton(props: {
   concept?: boolean   // approving a concept render: the full design comes next
 }) {
   const [open, setOpen] = useState(false)
-  const label = props.optionCount > 1 ? `Approve Option ${props.option.label}` : 'Approve this design'
+  const label = props.optionCount > 1 ? `Approve Option ${props.option.label}` : 'Approve'
   return (
     <>
       <button className={`${primary} mt-4`} onClick={() => setOpen(true)}>{label}</button>
@@ -205,16 +208,16 @@ function ApproveSheet({ code, designer, ringSizeStatus, version, option, optionC
     return (
       <Sheet title="Approved" onClose={close}>
         <Done title="Thank you!" onClose={close} body={done === 'size_outstanding'
-          ? `We’ve recorded your approval of ${what}. Our team will be in touch to help you confirm your ring size${concept ? `, and ${designer} will build your full design for your final approval.` : `, then ${designer} will prepare it for production.`}`
+          ? `${what} approved. We’ll be in touch to confirm your ring size.${concept ? ` ${designer} will then build your full design.` : ''}`
           : concept
-            ? `You’ve approved ${what}. ${designer} will now build your full design and share it with you for your final approval.`
-            : `You’ve approved ${what}. ${designer} will prepare your design for production, and we’ll be in touch about the next steps.`} />
+            ? `${what} approved. ${designer} will now build your full design for your final approval.`
+            : `${what} approved. ${designer} will prepare it for production. We’ll be in touch.`} />
       </Sheet>
     )
   }
 
   return (
-    <Sheet title="Confirm your approval" onClose={close}
+    <Sheet title="Confirm approval" onClose={close}
       footer={
         <div className="space-y-2">
           {error && <p className="text-sm text-red-700">{error}</p>}
@@ -231,13 +234,13 @@ function ApproveSheet({ code, designer, ringSizeStatus, version, option, optionC
       )}
       <p className="font-serif text-2xl leading-snug text-cocoa-dark">You’re approving {what}</p>
       <p className="mt-2 text-[15px] leading-relaxed text-stone">
-        {concept ? `Once you confirm, ${designer} will build your full design for your final approval.` : `Once you confirm, ${designer} will prepare it for production.`}
+        {concept ? `${designer} will then build your full design for you to approve.` : `${designer} will then prepare it for production.`}
       </p>
 
       {needsSize && (
         <div className="mt-6 rounded-xl border border-sand bg-white p-4">
           <p className="text-[15px] font-medium text-ink">What’s your ring size?</p>
-          <p className="mb-3 mt-0.5 text-sm text-stone">We need it before your ring can go into production.</p>
+          <p className="mb-3 mt-0.5 text-sm text-stone">Needed before production.</p>
           {!notSure && <RingSizePicker value={size} onChange={setSize} />}
           <label className="mt-3 flex cursor-pointer items-center gap-3 text-[15px] text-ink">
             <input type="checkbox" checked={notSure} onChange={e => setNotSure(e.target.checked)}
@@ -245,7 +248,7 @@ function ApproveSheet({ code, designer, ringSizeStatus, version, option, optionC
             Not sure of my size
           </label>
           {notSure && (
-            <p className="mt-2 text-sm text-cocoa-light">No problem. We’ll record your approval and our team will help you confirm your size before production starts.</p>
+            <p className="mt-2 text-sm text-cocoa-light">No problem. We’ll help you confirm it before production.</p>
           )}
         </div>
       )}
@@ -306,7 +309,7 @@ export function RequestChangesButton(props: {
   return (
     <>
       <button className={`${secondary} mt-6`} onClick={() => setOpen(true)}>
-        {hasDraft ? `Continue your changes to ${props.version.title}` : `Request changes to ${props.version.title}`}
+        {hasDraft ? 'Continue your changes' : 'Request changes'}
       </button>
       {open && <ChangesFlow {...props} storageKey={key} onClose={() => setOpen(false)} />}
     </>
@@ -393,7 +396,7 @@ function ChangesFlow({ code, designer, version, options, storageKey, onClose }:
     return (
       <Sheet title="Changes sent" onClose={close}>
         <Done title="Thank you!" onClose={close}
-          body={`${designer} has your notes on ${version.title}${multi && option ? `, Option ${option.label}` : ''} and will get started on your next version. We’ll email you when it’s ready.`} />
+          body={`${designer} will start on your next version. We’ll email you when it’s ready.`} />
       </Sheet>
     )
   }
@@ -440,7 +443,7 @@ function ChangesFlow({ code, designer, version, options, storageKey, onClose }:
 
       {step === 'option' && (
         <>
-          <p className="mb-4 text-[15px] text-ink">Which option would you like changed?</p>
+          <p className="mb-4 text-[15px] text-ink">Which option?</p>
           <div className="grid grid-cols-2 gap-3">
             {options.map(o => (
               <button key={o.id} type="button" onClick={() => update({ optionId: o.id })} aria-pressed={draft.optionId === o.id}
@@ -459,7 +462,7 @@ function ChangesFlow({ code, designer, version, options, storageKey, onClose }:
 
       {step === 'areas' && (
         <>
-          <p className="mb-4 text-[15px] text-ink">What would you like to change? Choose all that apply.</p>
+          <p className="mb-4 text-[15px] text-ink">What would you like to change?</p>
           <div className="flex flex-wrap gap-2">
             {CHANGE_AREAS.map(a => {
               const on = draft.areas.includes(a.key)
@@ -477,7 +480,7 @@ function ChangesFlow({ code, designer, version, options, storageKey, onClose }:
 
       {step === 'details' && (
         <div className="space-y-5">
-          <p className="text-[15px] text-ink">Tell {designer} what you’d like. A few words is plenty.</p>
+          <p className="text-[15px] text-ink">A few words is plenty.</p>
           {CHANGE_AREAS.filter(a => draft.areas.includes(a.key)).map(a => (
             <label key={a.key} className="block">
               <span className="font-serif text-lg text-cocoa-dark">{a.label}</span>
@@ -491,8 +494,8 @@ function ChangesFlow({ code, designer, version, options, storageKey, onClose }:
 
       {step === 'draw' && (
         <>
-          <p className="text-[15px] text-ink">Want to show us? <span className="text-stone">(optional)</span></p>
-          <p className="mb-4 mt-1 text-sm text-stone">Tap an image to draw on it, e.g. circle the part you’d like changed.</p>
+          <p className="text-[15px] text-ink">Show us? <span className="text-stone">(optional)</span></p>
+          <p className="mb-4 mt-1 text-sm text-stone">Tap an image to draw on it.</p>
           <div className="grid grid-cols-2 gap-3">
             {drawable.map(r => {
               const drawn = !!draft.drawings[r.id]?.length
@@ -515,7 +518,7 @@ function ChangesFlow({ code, designer, version, options, storageKey, onClose }:
 
       {step === 'review' && (
         <div className="space-y-5">
-          <p className="text-[15px] text-ink">Here’s what we’ll send to {designer}:</p>
+          <p className="text-[15px] text-ink">Sending to {designer}:</p>
           <div className="rounded-xl border border-sand bg-white p-4 text-[15px]">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-cocoa-light">
               {version.title}{multi && option ? `, Option ${option.label}` : ''}
@@ -563,7 +566,7 @@ export function DrawEditor({ render, initial, onSave, onCancel }: {
       footer={
         <div className="flex gap-3">
           <button className={backBtn} onClick={onCancel}>← Back</button>
-          <button className={primary} disabled={saving} onClick={save}>{saving && <Spinner />} {count ? 'Done' : 'Back without drawing'}</button>
+          <button className={primary} disabled={saving} onClick={save}>{saving && <Spinner />} {count ? 'Done' : 'Cancel'}</button>
         </div>
       }>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -586,7 +589,7 @@ export function DrawEditor({ render, initial, onSave, onCancel }: {
           className="rounded-full border border-sand bg-white px-4 py-2 text-sm text-cocoa disabled:opacity-40">Clear</button>
       </div>
       <DrawingCanvas ref={ref} src={render.url} colour={colour} size={size} initial={initial} onChange={setCount} />
-      <p className="mt-2 text-center text-xs text-stone">Draw with your finger, or with your mouse on a computer.</p>
+      <p className="mt-2 text-center text-xs text-stone">Draw with your finger or mouse.</p>
     </Sheet>
   )
 }

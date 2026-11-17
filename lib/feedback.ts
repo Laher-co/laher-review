@@ -5,7 +5,7 @@ export const CHANGE_AREAS = [
   { key: 'setting', label: 'Setting',       prompt: 'e.g. lower the setting, four claws instead of six' },
   { key: 'stone',   label: 'Centre stone',  prompt: 'e.g. a slightly larger oval, a different shape' },
   { key: 'metal',   label: 'Metal',         prompt: 'e.g. platinum instead of yellow gold' },
-  { key: 'other',   label: 'Something else', prompt: 'Tell us what you’d like changed' },
+  { key: 'other',   label: 'Something else', prompt: 'What would you like changed?' },
 ] as const
 
 export type ChangeArea = typeof CHANGE_AREAS[number]['key']

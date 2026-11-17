@@ -44,13 +44,13 @@ export function jobStage({ publishedAt, decisions, ringSizeStatus, sourcing, hol
 }
 
 export const STAGE_COPY: Record<Stage, { label: string; message: (designer: string) => string }> = {
-  in_design:            { label: 'In design',             message: d => `${d} is creating your first design` },
-  feedback_needed:      { label: 'Your feedback needed',  message: () => 'Your new design is ready, take a look below' },
-  alterations:          { label: 'Design alterations',    message: d => `${d} is working on your changes` },
+  in_design:            { label: 'In design',             message: d => `${d} is creating your design` },
+  feedback_needed:      { label: 'Over to you',           message: () => 'Your new design is ready' },
+  alterations:          { label: 'Changes underway',      message: d => `${d} is working on your changes` },
   approved:             { label: 'Approved',              message: () => 'Your design is going into production' },
-  approved_size_needed: { label: 'Approved – size needed', message: () => 'Please confirm your ring size so we can begin' },
+  approved_size_needed: { label: 'Approved – size needed', message: () => 'Confirm your ring size to begin' },
   sourcing_approved:    { label: 'Approved',              message: () => 'We’re securing your stone' },
   sourcing_new_stone:   { label: 'Your new stone',        message: () => 'We’re sourcing your new stone' },
-  approved_building:    { label: 'Approved',              message: d => `${d} is now building your full design` },
+  approved_building:    { label: 'Approved',              message: d => `${d} is building your full design` },
   approved_finalising:  { label: 'Approved',              message: d => `${d} is finalising your design` },
 }

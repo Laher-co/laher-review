@@ -44,8 +44,9 @@ function SettingImage({ choice, images, priority, onZoom }: {
   )
 }
 
-export default function SettingChooser({ code, initial, locked, images }: {
+export default function SettingChooser({ code, initial, locked, images, compact }: {
   code: string; initial: SettingChoice | null; locked: boolean; images: Images
+  compact?: boolean   // in the narrow "Your brief" panel: one column
 }) {
   const [chosen, setChosen] = useState<SettingChoice | null>(initial)
   const [changing, setChanging] = useState(false)
@@ -89,17 +90,17 @@ export default function SettingChooser({ code, initial, locked, images }: {
           <SettingImage choice={chosen} images={images} priority onZoom={zoomTo(chosen)} />
           <div className="px-5 py-6 text-center sm:px-8">
             <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cocoa-light">Your choice</p>
-            <p className="mt-2 font-serif text-[1.6rem] leading-snug text-cocoa-dark">Thank you, we’ve noted that</p>
+            <p className="mt-2 font-serif text-[1.6rem] leading-snug text-cocoa-dark">Noted, thank you</p>
             <p className="mt-3 text-[13px] font-semibold tracking-[0.18em] text-cocoa-dark">{copy.heading}</p>
             <p className="mt-0.5 text-[15px] text-ink">{copy.subheading}</p>
           </div>
         </div>
         {locked ? (
-          <p className="mt-4 text-center text-sm text-stone">Your design is underway with this setting.</p>
+          <p className="mt-4 text-center text-sm text-stone">Your design uses this setting.</p>
         ) : (
           <button type="button" onClick={() => setChanging(true)}
             className="mx-auto mt-4 block rounded-xl px-4 py-3 text-sm text-cocoa underline underline-offset-4 hover:text-cocoa-dark">
-            Change my answer
+            Change
           </button>
         )}
         {viewer}
@@ -109,8 +110,8 @@ export default function SettingChooser({ code, initial, locked, images }: {
 
   return (
     <div ref={top} className="mt-6 scroll-mt-6">
-      <p className="text-[15px] text-stone">Tap an image to see it up close, then choose the style you prefer.</p>
-      <div className="mt-4 grid gap-5 sm:grid-cols-2">
+      <p className="text-[15px] text-stone">Tap an image to zoom, then choose.</p>
+      <div className={`mt-4 grid gap-5 ${compact ? '' : 'sm:grid-cols-2'}`}>
         {SETTING_CHOICES.map((c, i) => {
           const copy = SETTING_COPY[c]
           // Highlighted only once chosen (when changing an earlier answer); identical before that
@@ -142,7 +143,7 @@ export default function SettingChooser({ code, initial, locked, images }: {
       {changing && (
         <button type="button" onClick={() => setChanging(false)}
           className="mx-auto mt-4 block rounded-xl px-4 py-3 text-sm text-stone underline underline-offset-4 hover:text-cocoa">
-          Keep my current choice
+          Keep my choice
         </button>
       )}
       {error && <p className="mt-4 text-center text-sm text-red-700" role="alert">{error}</p>}

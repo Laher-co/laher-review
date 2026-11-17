@@ -144,7 +144,7 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
                   ))}
                   {m.changeRequest && (
                     <p className="mt-2 text-[11px] uppercase tracking-wider text-ivory/70">
-                      {m.changeRequest === 'sent' ? 'Sent as a change request' : 'Added to your change request'}
+                      {m.changeRequest === 'sent' ? 'Sent as a change' : 'Added to your changes'}
                     </p>
                   )}
                 </div>
@@ -187,7 +187,7 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
           {renders.length > 0 && (
             <button type="button" onClick={() => setPicking(true)}
               className="rounded-xl border border-sand bg-white px-4 py-3 text-sm text-cocoa hover:bg-linen">
-              ✎ Draw on the design
+              ✎ Draw
             </button>
           )}
           <button type="button" onClick={() => send()} disabled={!canSend || !!asking}
@@ -199,9 +199,9 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
 
       {asking && (
         <div role="dialog" aria-labelledby={`${key}-ask`} className="mt-3 rounded-xl border border-cocoa/25 bg-linen p-4">
-          <p id={`${key}-ask`} className="font-serif text-lg text-cocoa-dark">Is this a change you’d like to your design?</p>
+          <p id={`${key}-ask`} className="font-serif text-lg text-cocoa-dark">Is this a design change?</p>
           <p className="mt-1 text-sm text-stone">
-            If it’s a change, we’ll pass it straight to {asking.designer} to update your design. If it’s a question, the studio team will reply here.
+            Changes go straight to {asking.designer}. Questions, we’ll answer here.
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button type="button" onClick={() => send('change')} disabled={pending}
@@ -219,7 +219,7 @@ export default function MessageThread({ code, versionId, heading, intro, placeho
       )}
 
       {picking && !editing && (
-        <Sheet title="Choose an image to draw on" onClose={() => setPicking(false)}>
+        <Sheet title="Choose an image" onClose={() => setPicking(false)}>
           <div className="grid grid-cols-2 gap-3">
             {renders.map(r => (
               <button key={r.id} type="button" onClick={() => setEditing(r)}

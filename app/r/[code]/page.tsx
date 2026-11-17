@@ -11,13 +11,15 @@ import LightboxThumbs from '@/components/LightboxThumbs'
 import Gallery from './Gallery'
 import { ApproveButton, RequestChangesButton, RingSizeBar } from './client'
 import MessageThread, { type ThreadMessage } from './messages'
+import { BriefPanel } from './brief'
+import { loadOnboarding } from '@/lib/onboarding-view'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Your design — LAHER', robots: { index: false, follow: false } }
 
 type Decision = typeof decisions.$inferSelect
 
-export default async function CustomerReviewPage({ params }: { params: { code: string } }) {
+export default async function CustomerReviewPage({ params, searchParams }: { params: { code: string }; searchParams: { brief?: string } }) {
   const row = await getJobByCode(params.code)
   if (!row) notFound()
   const { job, designerName } = row
@@ -53,6 +55,8 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
     overrides: releases.map(r => ({ stage: (r.details as { stage: 'approved' | 'alterations' }).stage, at: r.createdAt })),
   })
   const [latest, ...older] = published
+  // After Version One the onboarding moves into "Your brief" (before it, the welcome page has it)
+  const ob = latest && job.onboardingLinkPostedAt ? await loadOnboarding(job) : null
   // One change request per round; once a full design is approved, no more buttons
   const round = roundState(published.map(v => v.publishedAt), allDecisions)
 
@@ -78,9 +82,14 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
 
       <main className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
         <p className="text-sm text-stone">Hi {firstName},</p>
-        <SpacedHeading className="mt-2">Your bespoke design</SpacedHeading>
+        <SpacedHeading className="mt-2">Your design</SpacedHeading>
         {designerName && <p className="mt-2 text-sm text-cocoa-light">Designed by {designerName}</p>}
-        {job.onboardingLinkPostedAt && (
+        {ob && (
+          <BriefPanel code={job.publicCode} ob={ob} open={searchParams.brief === 'open'}
+            size={job.ringSize} sizeConfirmed={job.ringSizeStatus === 'confirmed'}
+            settingChoice={job.settingChoice} clusterStyles={job.clusterStyles ?? []} clusterSaved={!!job.clusterSavedAt} />
+        )}
+        {!latest && job.onboardingLinkPostedAt && (
           <a href={`/r/${job.publicCode}/welcome`}
             className="mt-3 inline-flex items-center gap-1.5 text-sm text-cocoa underline decoration-cocoa/30 underline-offset-4 hover:decoration-cocoa">
             Your welcome page <span aria-hidden>→</span>
@@ -89,7 +98,7 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
 
         {!latest ? (
           <p className="mt-12 rounded-2xl border border-sand bg-white/60 px-6 py-12 text-center text-stone">
-            Your designer is still preparing your renders. We’ll email you as soon as they’re ready.
+            Your first design is on its way. We’ll email you when it’s ready.
           </p>
         ) : (
           <>
@@ -119,9 +128,9 @@ export default async function CustomerReviewPage({ params }: { params: { code: s
         {/* Always available: before, during and after approval */}
         <section className="mt-16" id="message-the-studio">
           <MessageThread code={job.publicCode} versionId={null} renders={[]} messages={thread(null)}
-            heading="Have another thought? Message the studio"
-            intro={`Questions, ideas or anything else, and you can add photos too. ${designer} and the studio team will reply here.`}
-            placeholder="Write a message to the studio…" />
+            heading="Message the studio"
+            intro="Questions or ideas? Photos welcome. We’ll reply here."
+            placeholder="Write a message…" />
         </section>
       </main>
     </div>
@@ -160,8 +169,8 @@ function VersionSection({ version: v, latest, decisions: ds, messages: msgs, cod
   const canApprove = round === 'open' || round === 'changes_sent'
   const canRequestChanges = round === 'open'
   const roundNote = round === 'approved' ? 'Your design is approved'
-    : round === 'concept_approved' ? `${designer} is now building your full design. You’ll be able to review it soon.`
-    : round === 'changes_sent' ? `Your changes are with ${designer}. You’ll be able to review the next version soon.` : null
+    : round === 'concept_approved' ? `${designer} is building your full design. You’ll see it soon.`
+    : round === 'changes_sent' ? `Your changes are with ${designer}. Next version soon.` : null
   const multi = v.options.length > 1
   const title = versionTitle(v.number)
   return (
@@ -215,7 +224,7 @@ function VersionSection({ version: v, latest, decisions: ds, messages: msgs, cod
 
       {ds.length > 0 && (
         <div className="mt-8 space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-cocoa-light">Your responses to {title}</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-cocoa-light">Your responses</h3>
           {[...ds].reverse().map(d => <DecisionSummary key={d.id} decision={d} version={v} />)}
         </div>
       )}
@@ -224,8 +233,8 @@ function VersionSection({ version: v, latest, decisions: ds, messages: msgs, cod
         <MessageThread code={code} versionId={v.id} messages={msgs}
           renders={v.options.flatMap(o => o.renders.map(r => ({ id: r.id, url: r.blobUrl })))}
           heading={`Comments on ${title}`}
-          intro="Ask a question or leave a note about this version. You can draw on the design too."
-          placeholder={`Write a comment about ${title}…`} />
+          intro="Questions or notes on this version. You can draw on it too."
+          placeholder="Write a comment…" />
       </div>
     </section>
   )
@@ -235,10 +244,10 @@ function VersionSection({ version: v, latest, decisions: ds, messages: msgs, cod
 function RenderNote() {
   return (
     <div className="mt-6 space-y-1.5 border-l-2 border-sand pl-4 text-sm leading-relaxed text-stone">
-      <p>Renders show the design, not the exact stone colour. Your real stone may look different in person.</p>
+      <p>Renders show the design. Your real stone’s colour may differ.</p>
       <p>
-        Wondering how a wedding band will sit with your ring?{' '}
-        <a href="#message-the-studio" className="text-cocoa underline decoration-cocoa/30 underline-offset-4 hover:decoration-cocoa">Just ask us in the message box.</a>
+        Wondering how a wedding band will sit?{' '}
+        <a href="#message-the-studio" className="text-cocoa underline decoration-cocoa/30 underline-offset-4 hover:decoration-cocoa">Just ask us.</a>
       </p>
     </div>
   )
