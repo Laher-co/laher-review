@@ -1,6 +1,6 @@
 import Image from 'next/image'
 import { CLUSTER_STYLES, clusterLabel, type ClusterStyle } from '@/lib/onboarding'
-import { SETTING_COPY, SETTING_INTRO, SETTING_QUESTION, type SettingChoice } from '@/lib/setting'
+import { SETTING_COPY, SETTING_QUESTION, type SettingChoice } from '@/lib/setting'
 import type { Onboarding } from '@/lib/onboarding-view'
 import SettingChooser from './welcome/setting-chooser'
 import { ClusterChooser, DesignerNotes, StaffQuestions } from './welcome/sections'
@@ -45,7 +45,6 @@ export function BriefPanel({ code, ob, size, sizeConfirmed, settingChoice, clust
           ) : (
             <>
               <p className="font-serif text-lg leading-snug text-cocoa">{SETTING_QUESTION}</p>
-              <p className="mt-1.5 text-sm leading-relaxed text-ink">{SETTING_INTRO}</p>
               <SettingChooser code={code} initial={null} locked={false} images={ob.settingImages} compact />
             </>
           )}

@@ -4,8 +4,7 @@
 export type SettingChoice = 'high_set' | 'low_set'
 export const SETTING_CHOICES: SettingChoice[] = ['high_set', 'low_set']
 
-export const SETTING_QUESTION = 'How high should your engagement ring sit?'
-export const SETTING_INTRO = 'This only shapes your engagement ring. It decides which style of wedding band will sit beside it later on. You’re not ordering a wedding band now.'
+export const SETTING_QUESTION = 'How your engagement ring will sit with a wedding band'
 
 export const SETTING_COPY: Record<SettingChoice, { heading: string; subheading: string; label: string; points: string[] }> = {
   high_set: {

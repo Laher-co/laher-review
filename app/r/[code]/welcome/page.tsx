@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { getJobByCode } from '@/lib/jobs'
-import { SETTING_INTRO, SETTING_QUESTION } from '@/lib/setting'
+import { SETTING_QUESTION } from '@/lib/setting'
 import { firstNameOf, type SectionKey } from '@/lib/onboarding'
 import { loadOnboarding } from '@/lib/onboarding-view'
 import { SpacedHeading, Wordmark } from '@/components/brand'
@@ -93,7 +93,6 @@ export default async function OnboardingPage({ params }: { params: { code: strin
         {showSetting && (
           <Section id="setting" title="Setting height" done={doneOf('setting')} counted>
             <p className="mt-2 font-serif text-[1.35rem] leading-snug text-cocoa">{SETTING_QUESTION}</p>
-            <p className="mt-2 text-[15px] leading-relaxed text-ink">{SETTING_INTRO}</p>
             <SettingChooser code={job.publicCode} initial={job.settingChoice} locked={ob.settingLocked} images={ob.settingImages} />
           </Section>
         )}
