@@ -715,22 +715,27 @@ export type OnboardingPanelProps = {
 }
 
 /** The customer's onboarding page: link, which questions are on, and everything they've answered. */
-export function OnboardingPanel(p: OnboardingPanelProps) {
+export function OnboardingPanel(p: OnboardingPanelProps & { defaultOpen: boolean }) {
   const { pending, error, run } = useAction()
   const [newQ, setNewQ] = useState('')
   const sub = 'text-xs uppercase tracking-widest text-cocoa-light'
   return (
-    <section className="rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    // Collapsed by default once Version One is published (like "Your brief" on the customer's page)
+    <details open={p.defaultOpen} className="group rounded-2xl border border-sand bg-white/70 p-5 sm:p-6">
+      <summary className="flex cursor-pointer list-none flex-wrap items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
         <div>
           <h2 className="font-serif text-xl text-cocoa-dark">Onboarding page</h2>
           <p className="mt-1 text-sm text-stone">
             {p.progress.total ? `${p.progress.done} of ${p.progress.total} done` : 'Nothing for the customer to answer yet'}
             {p.progress.sections.length > 0 && ` · ${p.progress.sections.map(s => `${s.label}${s.done ? ' ✓' : ''}`).join(' · ')}`}
+            {p.email.needsNudge && <span className="ml-2 font-medium text-amber-800">· Let the customer know about a new question</span>}
           </p>
         </div>
-        {pending && <Spinner />}
-      </div>
+        <span className="flex items-center gap-2">
+          {pending && <Spinner />}
+          <span aria-hidden className="text-xl text-cocoa-light transition-transform group-open:rotate-90">›</span>
+        </span>
+      </summary>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         <span className="flex items-center gap-2"><span className="text-cocoa-light">Customer link:</span> <CopyLink url={p.url} /></span>
@@ -879,7 +884,7 @@ export function OnboardingPanel(p: OnboardingPanelProps) {
         </div>
       )}
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
-    </section>
+    </details>
   )
 }
 

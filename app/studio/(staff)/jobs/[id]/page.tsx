@@ -110,7 +110,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-8">
-      <Brief
+      <Brief defaultOpen={published.length === 0} toAnswer={onboarding.total - onboarding.done}
         size={{ value: job.ringSize, status: job.ringSizeStatus,
           when: job.ringSizeStatus === 'confirmed' && job.ringSizeConfirmedAt ? formatSydney(job.ringSizeConfirmedAt)
             : job.ringSizeNotSureAt ? formatSydney(job.ringSizeNotSureAt) : null,
@@ -202,7 +202,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
         </dl>
       </section>
 
-      <OnboardingPanel jobId={job.id} url={onboardingUrl(job.publicCode)}
+      <OnboardingPanel jobId={job.id} url={onboardingUrl(job.publicCode)} defaultOpen={published.length === 0}
         linkPostedAt={job.onboardingLinkPostedAt ? formatSydney(job.onboardingLinkPostedAt) : null}
         progress={{ ...onboarding, sections: onboarding.sections.map(x => ({ label: ONBOARDING_LABEL[x.key], done: x.done })) }}
         setting={{ on: job.settingQuestion, choice: job.settingChoice,
@@ -390,7 +390,9 @@ function DecisionCard({ decision: d, options, versionNumber, trello, markedBy, v
 }
 
 /** "Brief": everything the customer has told us up front, with when each was submitted. */
-function Brief({ size, setting, cluster, questions, notes, latestNote }: {
+function Brief({ defaultOpen, toAnswer, size, setting, cluster, questions, notes, latestNote }: {
+  defaultOpen: boolean   // collapsed once Version One is published
+  toAnswer: number
   size: { value: string | null; status: string; when: string | null; by: string | null; notSure: boolean }
   setting: { choice: string | null; when: string | null; by: string | null } | null
   cluster: { styles: string[]; when: string | null } | null
@@ -403,8 +405,24 @@ function Brief({ size, setting, cluster, questions, notes, latestNote }: {
   const pending = <span className="text-stone">Not answered yet</span>
   const notAsked = <span className="text-stone">Not asked</span>
   return (
-    <section className="rounded-2xl border border-cocoa/25 bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="font-serif text-2xl text-cocoa-dark">Brief</h2>
+    <details open={defaultOpen} className="group rounded-2xl border border-cocoa/25 bg-white p-5 shadow-sm sm:p-6">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="font-serif text-2xl text-cocoa-dark">Brief</h2>
+          {/* One line when collapsed: the key facts */}
+          <span className="text-sm text-stone group-open:hidden">
+            {[
+              size.status === 'confirmed' ? `Ring size ${size.value}` : 'Ring size not confirmed',
+              setting?.choice ?? null,
+              cluster?.styles.length ? `Cluster ${cluster.styles.map(s => s.split('.')[0]).join(', ')}` : null,
+              questions.length ? `${questions.length} question${questions.length > 1 ? 's' : ''}` : null,
+              notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : null,
+            ].filter(Boolean).join(' · ')}
+          </span>
+          {toAnswer > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">{toAnswer} still to answer</span>}
+        </span>
+        <span aria-hidden className="text-2xl text-cocoa-light transition-transform group-open:rotate-90">›</span>
+      </summary>
       <dl className="mt-4 grid gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
         <div>
           <dt className={dt}>Ring size</dt>
@@ -468,6 +486,6 @@ function Brief({ size, setting, cluster, questions, notes, latestNote }: {
           </ul>
         </div>
       )}
-    </section>
+    </details>
   )
 }
