@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { getJobByCode } from '@/lib/jobs'
-import { SETTING_QUESTION } from '@/lib/setting'
+import { SETTING_INTRO, SETTING_QUESTION } from '@/lib/setting'
 import { firstNameOf, type SectionKey } from '@/lib/onboarding'
 import { loadOnboarding } from '@/lib/onboarding-view'
 import { SpacedHeading, Wordmark } from '@/components/brand'
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Welcome to LAHER Bespoke', robots: { index: false, follow: false } }
 
 const SECTION_LABEL: Record<SectionKey, string> = {
-  size: 'Ring size', setting: 'Setting', cluster: 'Cluster style', questions: 'Questions',
+  size: 'Ring size', setting: 'Setting height', cluster: 'Cluster style', questions: 'Questions',
 }
 
 export default async function OnboardingPage({ params }: { params: { code: string } }) {
@@ -91,8 +91,9 @@ export default async function OnboardingPage({ params }: { params: { code: strin
 
         {/* 3. Setting and wedding band */}
         {showSetting && (
-          <Section id="setting" title="Setting" done={doneOf('setting')} counted>
+          <Section id="setting" title="Setting height" done={doneOf('setting')} counted>
             <p className="mt-2 font-serif text-[1.35rem] leading-snug text-cocoa">{SETTING_QUESTION}</p>
+            <p className="mt-2 text-[15px] leading-relaxed text-ink">{SETTING_INTRO}</p>
             <SettingChooser code={job.publicCode} initial={job.settingChoice} locked={ob.settingLocked} images={ob.settingImages} />
           </Section>
         )}

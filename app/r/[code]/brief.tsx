@@ -1,6 +1,6 @@
 import Image from 'next/image'
 import { CLUSTER_STYLES, clusterLabel, type ClusterStyle } from '@/lib/onboarding'
-import { SETTING_COPY, SETTING_QUESTION, type SettingChoice } from '@/lib/setting'
+import { SETTING_COPY, SETTING_INTRO, SETTING_QUESTION, type SettingChoice } from '@/lib/setting'
 import type { Onboarding } from '@/lib/onboarding-view'
 import SettingChooser from './welcome/setting-chooser'
 import { ClusterChooser, DesignerNotes, StaffQuestions } from './welcome/sections'
@@ -29,7 +29,7 @@ export function BriefPanel({ code, ob, size, sizeConfirmed, settingChoice, clust
       </Item>
 
       {ob.showSetting && (
-        <Item title="Setting">
+        <Item title="Setting height">
           {settingChoice ? (
             <div className="flex items-center gap-3">
               {ob.settingImages[settingChoice] && (
@@ -44,7 +44,8 @@ export function BriefPanel({ code, ob, size, sizeConfirmed, settingChoice, clust
             </div>
           ) : (
             <>
-              <p className="text-[15px] text-ink">{SETTING_QUESTION}</p>
+              <p className="font-serif text-lg leading-snug text-cocoa">{SETTING_QUESTION}</p>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink">{SETTING_INTRO}</p>
               <SettingChooser code={code} initial={null} locked={false} images={ob.settingImages} compact />
             </>
           )}

@@ -4,12 +4,13 @@
 export type SettingChoice = 'high_set' | 'low_set'
 export const SETTING_CHOICES: SettingChoice[] = ['high_set', 'low_set']
 
-export const SETTING_QUESTION = 'How should your engagement ring and wedding band sit together?'
+export const SETTING_QUESTION = 'How high should your engagement ring sit?'
+export const SETTING_INTRO = 'This only shapes your engagement ring. It decides which style of wedding band will sit beside it later on. You’re not ordering a wedding band now.'
 
 export const SETTING_COPY: Record<SettingChoice, { heading: string; subheading: string; label: string; points: string[] }> = {
   high_set: {
     heading: 'HIGH SET / CATHEDRAL',
-    subheading: 'For a straight wedding band',
+    subheading: 'Suits a straight wedding band later',
     label: 'HIGH SET – straight wedding band',
     points: [
       'Sits higher, so a straight band fits right beside it.',
@@ -19,7 +20,7 @@ export const SETTING_COPY: Record<SettingChoice, { heading: string; subheading: 
   },
   low_set: {
     heading: 'LOW SET / BASKET',
-    subheading: 'Requires a curved or split wedding band',
+    subheading: 'Suits a curved or split wedding band later',
     label: 'LOW SET – curved or split wedding band',
     points: [
       'Sits lower, closer to the finger, in a basket setting.',
