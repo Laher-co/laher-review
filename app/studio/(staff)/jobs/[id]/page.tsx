@@ -14,6 +14,9 @@ import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/w
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
 import LightboxThumbs from '@/components/LightboxThumbs'
+import { roundState } from '@/lib/approval'
+import { canMoveBackToRevision, canTreatAsChange, liveDecisions } from '@/lib/message-routing'
+import { MoveBackToRevisionButton } from './client'
 
 export const metadata = { title: 'Job — LAHER Studio' }
 
@@ -41,9 +44,17 @@ export default async function JobPage({ params }: { params: { id: string } }) {
   ])
   const now = new Date()
   const WAITING_FOR = { message: 'a reply to a message', decision: 'a response to their feedback', ring_size: 'their ring size to be confirmed' } as const
+  // Change requests made from messages ("Yes, it's a change" or staff), and what can still be undone
+  const publishedAts = allVersions.filter(v => v.status === 'published').map(v => v.publishedAt)
+  const round = roundState(publishedAts, liveDecisions(jobDecisions))
   const thread = (versionId: string | null): StaffThreadMessage[] => jobMessages
     .filter(m => m.versionId === versionId)
     .map(m => ({
+      changeRequest: !m.changeRequestId ? null
+        : jobDecisions.find(d => d.id === m.changeRequestId)?.fromMessageId === m.id ? 'sent' as const : 'added' as const,
+      sentIn: m.author === 'customer' ? m.cardList : null,
+      answered: m.intent === 'question' ? 'Customer said: just a question' : m.intent === 'change' && !m.changeRequestId ? 'Customer said: a change' : null,
+      canTreat: canTreatAsChange(m, publishedAts, round),
       id: m.id, author: m.author, staffName: m.staffId ? people.find(p => p.id === m.staffId)?.name ?? null : null,
       body: m.body, drawings: m.annotations.map(a => a.drawingUrl), when: formatSydney(m.createdAt),
       byEmail: m.source === 'email',
@@ -274,7 +285,10 @@ export default async function JobPage({ params }: { params: { id: string } }) {
             </p>
           )}
           {ds.map(d => (
-            <DecisionCard key={d.id} decision={d} options={v.options} versionNumber={v.number} trello={decisionOutcome.get(d.id)} />
+            <DecisionCard key={d.id} decision={d} options={v.options} versionNumber={v.number} trello={decisionOutcome.get(d.id)}
+              markedBy={d.markedBy ? nameOf(d.markedBy) : null} voidedBy={d.voidedBy ? nameOf(d.voidedBy) : null}
+              added={jobMessages.filter(m => m.changeRequestId === d.id && m.id !== d.fromMessageId).map(m => ({ id: m.id, body: m.body, when: formatSydney(m.createdAt), byEmail: m.source === 'email' }))}
+              canUndo={canMoveBackToRevision(d, publishedAts, jobDecisions)} />
           ))}
           {v.designerNote && <p className="mt-4 whitespace-pre-line text-sm text-ink"><span className="text-stone">Note to customer: </span>{v.designerNote}</p>}
           <div className="mt-4">
@@ -316,9 +330,12 @@ function TrelloLine({ t }: { t?: { moved: boolean; retrying?: boolean; skipped?:
   )
 }
 
-function DecisionCard({ decision: d, options, versionNumber, trello }: {
+function DecisionCard({ decision: d, options, versionNumber, trello, markedBy, voidedBy, added, canUndo }: {
   decision: DecisionRow; options: { id: string; label: string }[]; versionNumber: number
   trello?: { moved: boolean; retrying?: boolean; skipped?: boolean; from?: string; to?: string; reason?: string }
+  markedBy: string | null; voidedBy: string | null
+  added: { id: string; body: string; when: string; byEmail: boolean }[]
+  canUndo: boolean
 }) {
   const approved = d.decision === 'approved'
   const option = options.find(o => o.id === d.optionId)
@@ -327,14 +344,25 @@ function DecisionCard({ decision: d, options, versionNumber, trello }: {
     decision: d.decision, sizeOutstanding: d.sizeOutstanding, versionTitle: versionTitle(versionNumber),
     optionLabel: option?.label, optionCount: options.length,
   })
-  const tone = !approved ? 'border-amber-200 bg-amber-50/60' : d.sizeOutstanding ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/60'
+  const voided = !!d.voidedAt
+  const tone = voided ? 'border-sand bg-white/60 opacity-70' : !approved ? 'border-amber-200 bg-amber-50/60' : d.sizeOutstanding ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/60'
   return (
     <div className={`mt-4 rounded-xl border p-4 ${tone}`}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <p className="text-sm font-semibold tracking-wide text-ink">{heading}</p>
+        <p className={`text-sm font-semibold tracking-wide text-ink ${voided ? 'line-through' : ''}`}>{heading}</p>
         <span className="ml-auto text-xs text-stone">{formatSydney(d.createdAt)}</span>
       </div>
-      <TrelloLine t={trello} />
+      {d.fromMessageId && (
+        <p className="mt-1 text-xs text-stone">
+          From a customer message{markedBy ? `, marked as a change request by ${markedBy}` : ' (the customer said it’s a change)'}.
+        </p>
+      )}
+      {voided && (
+        <p className="mt-1 text-xs font-medium text-cocoa">
+          Moved back to Revision by {voidedBy ?? 'staff'}, {formatSydney(d.voidedAt!)}: just a question, not a change.
+        </p>
+      )}
+      {!voided && <TrelloLine t={trello} />}
       {notes.length > 0 && (
         <ul className="mt-3 space-y-1 text-sm">
           {notes.map(c => <li key={c.area}><strong className="text-cocoa">{areaLabel(c.area)}:</strong> {c.note}</li>)}
@@ -345,6 +373,18 @@ function DecisionCard({ decision: d, options, versionNumber, trello }: {
         <LightboxThumbs className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5"
           images={d.annotations.map((a, i) => ({ url: a.drawingUrl, alt: `Customer drawing ${i + 1}`, caption: heading }))} />
       )}
+      {added.length > 0 && (
+        <div className="mt-3 border-t border-amber-200/70 pt-3">
+          <p className="text-xs uppercase tracking-widest text-cocoa-light">Added to this request</p>
+          <ul className="mt-1.5 space-y-1.5 text-sm">
+            {added.map(m => (
+              <li key={m.id}><span className="text-xs text-stone">{m.when}{m.byEmail ? ' · by email' : ''}</span>
+                <p className="whitespace-pre-line text-ink">“{m.body}”</p></li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {canUndo && <MoveBackToRevisionButton decisionId={d.id} />}
     </div>
   )
 }

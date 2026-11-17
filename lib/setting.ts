@@ -4,26 +4,26 @@
 export type SettingChoice = 'high_set' | 'low_set'
 export const SETTING_CHOICES: SettingChoice[] = ['high_set', 'low_set']
 
-export const SETTING_QUESTION = 'How would you like your engagement ring and wedding band to sit together?'
+export const SETTING_QUESTION = 'How your engagement ring will sit with a wedding band'
 
 export const SETTING_COPY: Record<SettingChoice, { heading: string; subheading: string; label: string; points: string[] }> = {
   high_set: {
     heading: 'HIGH SET / CATHEDRAL',
-    subheading: 'For a straight wedding band',
+    subheading: 'Suits a straight wedding band later',
     label: 'HIGH SET – straight wedding band',
     points: [
-      'Sits higher off the finger, which allows a straight wedding band to sit right beside it.',
-      'For cluster or multi-stone designs, we add a gently swept shank for the strength and structural integrity of the setting.',
-      'A beautiful, classic look. If you’d prefer something lower on the finger, see the option below.',
+      'Sits higher, so a straight band fits right beside it.',
+      'Cluster and multi-stone designs get a gently swept shank for strength.',
+      'A classic look. Prefer it lower? See the other option.',
     ],
   },
   low_set: {
     heading: 'LOW SET / BASKET',
-    subheading: 'Requires a curved or split wedding band',
+    subheading: 'Suits a curved or split wedding band later',
     label: 'LOW SET – curved or split wedding band',
     points: [
-      'Sits lower and closer to the finger, in a basket setting.',
-      'When you reach the wedding band stage, our designers will create a curved or split band that sits flush against your engagement ring, following the shape of the setting.',
+      'Sits lower, closer to the finger, in a basket setting.',
+      'Later, we’ll design a curved or split band to sit flush against it.',
     ],
   },
 }

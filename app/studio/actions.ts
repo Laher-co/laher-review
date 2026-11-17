@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { del } from '@vercel/blob'
-import { db, escalations, internalNotes, jobs, messages, onboardingQuestions, options, renders, staff, versions, waiting } from '@/lib/db'
+import { db, decisions, escalations, internalNotes, jobs, messages, onboardingQuestions, options, renders, staff, versions, waiting } from '@/lib/db'
 import { checkStaffPassword, requireStaff } from '@/lib/auth'
 import { SESSION_COOKIE, SESSION_DAYS, signSession } from '@/lib/session'
 import { emitWebhook, logEvent } from '@/lib/events'
@@ -34,6 +34,8 @@ import { firstNameOf } from '@/lib/onboarding'
 import { sizeReleasesToPrintReady } from '@/lib/approval'
 import { moveToPrintReadyForSize } from '@/lib/size-release'
 import type { UploadedPhoto } from '@/components/PhotoAttach'
+import { canMoveBackToRevision, canTreatAsChange, liveDecisions } from '@/lib/message-routing'
+import { addMessageToRequest, changeRequestFromMessage, roundFor, undoMessageChangeRequest } from '@/lib/message-change-request'
 import { answerWaiting, markHandled } from '@/lib/waiting'
 import { closeFollowup, startDesignFollowup, stopFollowups } from '@/lib/followups'
 import { emailContext, sendCustomerEmail } from '@/lib/customer-emails'
@@ -789,6 +791,55 @@ export async function markChangesRequested(jobId: string) {
   return trello.moved
     ? trello.from === trello.to ? `Already in “${trello.to}”.` : `Moved to “${trello.to}”.`
     : `Not moved: ${trello.reason}`
+}
+
+/**
+ * "Treat as change request" on a message the customer sent while the card was
+ * in Revision (they chose "just a question", but it was really a change). Becomes
+ * a change request (card to Alterations), or joins the one already made this round.
+ */
+export async function treatMessageAsChangeRequest(messageId: string) {
+  const session = await requireStaff()
+  const [m] = await db.select().from(messages).where(eq(messages.id, messageId))
+  if (!m) return { ok: false as const, text: 'Message not found.' }
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, m.jobId))
+  if (!job) return { ok: false as const, text: 'Job not found.' }
+  const r = await roundFor(job.id)
+  if (!canTreatAsChange(m, r.published.map(v => v.publishedAt), r.round)) return { ok: false as const, text: 'This message can’t be made a change request any more.' }
+  const by = { staffId: session.staffId, name: session.name }
+  let result: string
+  if (r.round === 'changes_sent') {
+    const lastPublish = Math.max(0, ...r.published.map(v => v.publishedAt ? +new Date(v.publishedAt) : 0))
+    const current = liveDecisions(r.all).filter(d => d.decision === 'changes_requested' && +new Date(d.createdAt) >= lastPublish)
+      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0]
+    if (!current) return { ok: false as const, text: 'No change request to add it to.' }
+    const v = r.published.find(x => x.id === current.versionId)
+    await addMessageToRequest(job, m.id, { id: current.id, versionNumber: v?.number ?? 1 }, by)
+    result = 'Added to this round’s change request.'
+  } else {
+    const [d] = await db.select({ name: staff.name }).from(staff).where(eq(staff.id, job.designerId ?? session.staffId))
+    const out = await changeRequestFromMessage(job, job.designerId ? d?.name ?? null : null, m.id, by)
+    if (!out.ok) return { ok: false as const, text: out.error }
+    result = 'duplicate' in out ? 'Already a change request.'
+      : out.trello.moved ? `Change request made; card moved to “${out.trello.to}”.`
+      : `Change request made; card not moved (${out.trello.reason}).`
+  }
+  revalidatePath(`/studio/jobs/${job.id}`)
+  revalidatePath('/studio')
+  return { ok: true as const, text: result }
+}
+
+/** "Move back to Revision (just a question)": undoes a change request made from a message. */
+export async function moveBackToRevision(decisionId: string) {
+  const session = await requireStaff()
+  const [job] = await db.select().from(jobs).innerJoin(decisions, eq(decisions.jobId, jobs.id)).where(eq(decisions.id, decisionId))
+  if (!job) return { ok: false as const, text: 'Change request not found.' }
+  const r = await roundFor(job.jobs.id)
+  if (!canMoveBackToRevision(job.decisions, r.published.map(v => v.publishedAt), r.all)) return { ok: false as const, text: 'This change request can’t be undone any more.' }
+  const t = await undoMessageChangeRequest(job.jobs, decisionId, { staffId: session.staffId, name: session.name })
+  revalidatePath(`/studio/jobs/${job.jobs.id}`)
+  revalidatePath('/studio')
+  return { ok: true as const, text: t.moved ? `Card moved back to “${t.to}”.` : `Undone, but the card wasn’t moved: ${t.reason}. Please move it by hand.` }
 }
 
 /** "Stone not secured" switch (any staff member). Also adds or removes STONE NEEDS SOURCING on the card. */
