@@ -1,4 +1,4 @@
-import { ALERT_FROM_DAYS, dayMonth, longDay, plural, shortDay, type CastingState } from '@/lib/casting'
+import { ALERT_FROM_DAYS, plural, shortDay, type CastingState } from '@/lib/casting'
 
 /** Studio job page: amber countdown, or red once past the cast date. */
 export function StaffCastingAlert({ state, mismatch }: { state: CastingState; mismatch: string | null }) {
@@ -34,8 +34,8 @@ export function CustomerCastingCard({ state }: { state: CastingState }) {
     : state.kind === 'today' ? 'Casting today'
     : 'Getting as close to your date as we can'
   const text = state.kind === 'past'
-    ? `We’re working to have your ring ready as close to ${dayMonth(state.due)} as possible.`
-    : `To have your ring ready for ${dayMonth(state.due)}, we’ll aim to send it to cast ${state.kind === 'today' ? 'today' : `by ${longDay(state.cast)}`}.`
+    ? 'We’re working to have your ring ready as soon as possible.'
+    : `To have your ring ready in time, we’ll aim to send it to cast ${state.kind === 'today' ? 'today' : `within ${plural(state.daysLeft, 'day')}`}.`
   const filled = state.kind === 'countdown' ? state.daysLeft : 0
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
