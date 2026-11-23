@@ -13,6 +13,8 @@ import { ApproveButton, RequestChangesButton, RingSizeBar } from './client'
 import MessageThread, { type ThreadMessage } from './messages'
 import { BriefPanel } from './brief'
 import { loadOnboarding } from '@/lib/onboarding-view'
+import { castingForCustomer } from '@/lib/casting-server'
+import { CustomerCastingCard } from '@/components/CastingAlert'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Your design — LAHER', robots: { index: false, follow: false } }
@@ -57,6 +59,7 @@ export default async function CustomerReviewPage({ params, searchParams }: { par
   const [latest, ...older] = published
   // After Version One the onboarding moves into "Your brief" (before it, the welcome page has it)
   const ob = latest && job.onboardingLinkPostedAt ? await loadOnboarding(job) : null
+  const casting = await castingForCustomer(job.trelloCardId)
   // One change request per round; once a full design is approved, no more buttons
   const round = roundState(published.map(v => v.publishedAt), allDecisions)
 
@@ -78,6 +81,7 @@ export default async function CustomerReviewPage({ params, searchParams }: { par
       </header>
 
       <StageBanner stage={stage} designer={designer} />
+      {casting && <CustomerCastingCard state={casting} />}
       <RingSizeBar code={job.publicCode} size={job.ringSize} status={job.ringSizeStatus} />
 
       <main className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
