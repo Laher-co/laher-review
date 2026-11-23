@@ -14,6 +14,8 @@ import { addWorkingMinutes, formatMinutes, workingMinutesBetween } from '@/lib/w
 import { OVERDUE_WORKING_MINUTES } from '@/lib/alerts'
 import { followupLabel } from '@/lib/followup-schedule'
 import LightboxThumbs from '@/components/LightboxThumbs'
+import { StaffCastingAlert } from '@/components/CastingAlert'
+import { castingForCard } from '@/lib/casting-server'
 import { roundState } from '@/lib/approval'
 import { canMoveBackToRevision, canTreatAsChange, liveDecisions } from '@/lib/message-routing'
 import { MoveBackToRevisionButton } from './client'
@@ -43,6 +45,8 @@ export default async function JobPage({ params }: { params: { id: string } }) {
     db.select().from(internalNotes).where(eq(internalNotes.jobId, job.id)).orderBy(desc(internalNotes.createdAt)),
   ])
   const now = new Date()
+  // Casting date alert (from the card's due date; only before casting)
+  const casting = await castingForCard(card)
   const WAITING_FOR = { message: 'a reply to a message', decision: 'a response to their feedback', ring_size: 'their ring size to be confirmed' } as const
   // Change requests made from messages ("Yes, it's a change" or staff), and what can still be undone
   const publishedAts = allVersions.filter(v => v.status === 'published').map(v => v.publishedAt)
@@ -110,6 +114,7 @@ export default async function JobPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-8">
+      {casting && <StaffCastingAlert state={casting.state} mismatch={casting.mismatch} />}
       <Brief defaultOpen={published.length === 0} toAnswer={onboarding.total - onboarding.done}
         size={{ value: job.ringSize, status: job.ringSizeStatus,
           when: job.ringSizeStatus === 'confirmed' && job.ringSizeConfirmedAt ? formatSydney(job.ringSizeConfirmedAt)

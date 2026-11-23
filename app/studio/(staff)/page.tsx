@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import { asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { castingBadge } from '@/components/CastingAlert'
+import { castingForBoard } from '@/lib/casting-server'
 import { db, escalations, followups, issues, jobs, staff, versions, waiting } from '@/lib/db'
 import { requireStaff } from '@/lib/auth'
 import { Badge } from '@/components/brand'
@@ -57,6 +59,9 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
         .where(view === 'mine' ? eq(jobs.designerId, session.staffId) : undefined)
         .orderBy(desc(jobs.updatedAt))
     : []
+
+  // Casting date badges (one board read, cached briefly)
+  const casting = jobRows.length ? await castingForBoard() : {}
 
   const tabs: { id: View; label: string; count?: number }[] = [
     { id: 'queue', label: 'Queue', count: queue.length },
@@ -184,6 +189,7 @@ export default async function StudioHome({ searchParams }: { searchParams: { vie
                         {job.sourcing
                           ? <Badge tone="warn">Requires sourcing · {job.sourcingDesigner ?? designer ?? 'No designer'}</Badge>
                           : <Badge tone={status.tone}>{status.label}</Badge>}
+                        {casting[job.trelloCardId] && (() => { const b = castingBadge(casting[job.trelloCardId]); return <Badge tone={b.tone}>{b.label}</Badge> })()}
                         {job.stoneNotSecured && <Badge tone="danger">Centre stone not secured</Badge>}
                         {job.sideStonesUnconfirmed && <Badge tone="warn">Side stones not confirmed</Badge>}
                         {job.conceptRender && <Badge tone="neutral">Concept</Badge>}

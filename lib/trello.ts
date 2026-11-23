@@ -21,6 +21,7 @@ export interface TrelloCustomField {
 export interface TrelloCard {
   id: string; name: string; desc: string; idList: string; idBoard: string
   shortUrl: string; shortLink?: string; labels: TrelloLabel[]
+  due?: string | null
   customFieldItems?: { idCustomField: string; value?: { text?: string }; idValue?: string }[]
 }
 
@@ -53,7 +54,7 @@ export async function getCard(ref: string): Promise<TrelloCard | null> {
   if (!id) return null
   try {
     return await trello<TrelloCard>('GET',
-      `/cards/${id}?fields=name,desc,idList,idBoard,shortUrl,shortLink,labels&customFieldItems=true`)
+      `/cards/${id}?fields=name,desc,idList,idBoard,shortUrl,shortLink,labels,due&customFieldItems=true`)
   } catch (err) {
     if (err instanceof Error && /\((400|404)\)/.test(err.message)) return null
     throw err
@@ -73,6 +74,12 @@ export const getBoardListsWithPos = (boardId: string) => trello<{ id: string; na
 export const getBoardLabels = (boardId: string) => trello<TrelloLabel[]>('GET', `/boards/${boardId}/labels?limit=1000`)
 export const getBoardFields = (boardId: string) => trello<TrelloCustomField[]>('GET', `/boards/${boardId}/customFields`)
 export const getListCards   = (listId: string)  => trello<TrelloCard[]>('GET', `/lists/${listId}/cards?fields=name,idList,idBoard,shortUrl,shortLink`)
+/** Every open card's due date and list on a board (one request; for the casting alert). */
+export const getBoardCardDues = (boardId: string) =>
+  trello<{ id: string; due: string | null; idList: string }[]>('GET', `/boards/${boardId}/cards?filter=open&fields=due,idList`)
+/** The card's comments (newest first), text only. */
+export const getCardComments = (cardId: string) =>
+  trello<{ data: { text: string } }[]>('GET', `/cards/${cardId}/actions?filter=commentCard&limit=200&fields=data`).then(a => a.map(x => x.data.text))
 export const getAttachments = (cardId: string)  => trello<{ id: string; name: string; url: string }[]>('GET', `/cards/${cardId}/attachments?fields=name,url`)
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
